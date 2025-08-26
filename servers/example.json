@@ -1,0 +1,28 @@
+{
+  "name": "SG DigitalOcean 1",
+  "domain": "https://api.serveranda.com",
+  "api_token": "masukkan_token_api_panel_vpn_anda_di_sini",
+  "protocols": {
+    "ssh": {
+      "price_per_30_days": 15000
+    },
+    "vmess": {
+      "price_per_30_days": 20000
+    },
+    "vless": {
+      "price_per_30_days": 20000
+    },
+    "trojan": {
+      "price_per_30_days": 20000
+    },
+    "ss": {
+      "price_per_30_days": 18000
+    },
+    "s5": {
+      "price_per_30_days": 15000
+    },
+    "noobzvpn": {
+      "price_per_30_days": 25000
+    }
+  }
+}
