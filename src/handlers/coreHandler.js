@@ -5,6 +5,7 @@ const config = require('../config');
 const { formatRupiah, prettyLine } = require('../utils/helpers');
 const { writeLog } = require('../utils/logger');
 const os = require('os');
+const adminHandler = require('./adminHandler'); // [PERBAIKAN] Impor seluruh modul
 
 async function handleStartCommand(bot, msg) {
   const userId = msg.from.id.toString();
@@ -13,12 +14,17 @@ async function handleStartCommand(bot, msg) {
   if (isNewUser) {
     await bot.sendMessage(userId, 'Selamat datang! Akun Anda telah berhasil dibuat.');
   }
+  // Panggil sendMainMenu dari modul ini sendiri
   await sendMainMenu(bot, userId, msg.chat.id);
 }
 
 async function sendMainMenu(bot, userId, chatId, messageIdToEdit = null) {
   try {
     const user = userService.getUser(userId);
+    if (!user) {
+        writeLog(`[CoreHandler] Gagal sendMainMenu: User ${userId} tidak ditemukan di DB.`);
+        return;
+    }
     const allServers = serverService.getAllAvailableServers();
     const uptimeSec = os.uptime();
     const uptimeH = Math.floor(uptimeSec / 3600);
@@ -48,7 +54,8 @@ async function sendMainMenu(bot, userId, chatId, messageIdToEdit = null) {
       ]
     ];
     
-    if (user.role === 'admin') {
+    // [PERBAIKAN] Panggil fungsi isAdmin dari objek modul
+    if (adminHandler.isAdmin(userId)) {
       inline_keyboard.push([{ text: '👑 Panel Admin', callback_data: 'admin_panel_main' }]);
     }
 
@@ -59,7 +66,11 @@ async function sendMainMenu(bot, userId, chatId, messageIdToEdit = null) {
     };
 
     if (messageIdToEdit) {
-      await bot.editMessageText(messageText, { ...options, message_id: messageIdToEdit });
+      await bot.editMessageText(messageText, { ...options, message_id: messageIdToEdit }).catch(err => {
+        if(err.code !== 'ETELEGRAM' || !err.message.includes('message is not modified')) {
+          writeLog(`[CoreHandler] Edit Error: ${err.message}`);
+        }
+      });
     } else {
       await bot.sendMessage(chatId, messageText, options);
     }
