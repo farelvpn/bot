@@ -1,0 +1,17 @@
+{
+  "name": "bot-store-final",
+  "version": "4.0.0",
+  "description": "Bot Telegram Store VPN Lengkap dengan Notifikasi dan Fitur Lanjutan",
+  "main": "src/bot.js",
+  "scripts": {
+    "start": "node src/bot.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "body-parser": "^1.20.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-telegram-bot-api": "^0.66.0",
+    "sqlite3": "^5.1.7"
+  }
+}
