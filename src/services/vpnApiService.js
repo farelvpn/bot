@@ -81,50 +81,66 @@ async function renewAccount(server, protocol, username) {
     }
 }
 
+/**
+ * Memformat detail akun dari respons API menjadi string HTML yang rapi dan dinamis.
+ * @param {string} protocol
+ * @param {object} data - Objek respons dari API.
+ * @param {string} serverName
+ * @returns {string}
+ */
 function formatAccountDetails(protocol, data, serverName) {
     let details = `✅ <b>Akun Berhasil Dibuat</b>\n\n`;
     details += `<b>▪️ Remarks:</b> <code>${data.user || data.username}</code>\n`;
     details += `<b>▪️ Server:</b> ${serverName}\n`;
     details += `<b>▪️ Domain/IP:</b> <code>${data.domain || data.ip}</code>\n`;
     
+    // Informasi Umum
     if (data.password) details += `<b>▪️ Password:</b> <code>${data.password}</code>\n`;
     if (data.uuid) details += `<b>▪️ UUID:</b> <code>${data.uuid}</code>\n`;
     if (data.cipher) details += `<b>▪️ Cipher:</b> <code>${data.cipher}</code>\n`;
 
-    if (data.ports) {
+    // Informasi Port
+    if (data.ports) { // Untuk SSH
         details += `<b>▪️ Port SSH:</b> <code>${data.ports.ssh || '-'}</code>\n`;
         details += `<b>▪️ Port WS:</b> <code>${data.ports.ws_http || '-'} / ${data.ports.ws_tls || '-'} (SSL)</code>\n`;
         details += `<b>▪️ Port Socks5:</b> <code>${data.ports.socks5 || '-'}</code>\n`;
-    } else {
+    } else { // Untuk protokol lain
         if (data.https) details += `<b>▪️ Port TLS:</b> <code>${data.https}</code>\n`;
         if (data.http) details += `<b>▪️ Port Non-TLS:</b> <code>${data.http}</code>\n`;
         if (data.grpc) details += `<b>▪️ Port GRPC:</b> <code>${data.grpc}</code>\n`;
     }
     
+    // Informasi Jaringan & Path
     if (data.path) details += `<b>▪️ Path:</b> <code>${data.path}</code>\n`;
     if (data.service_name) details += `<b>▪️ Service Name:</b> <code>${data.service_name}</code>\n`;
 
+    // Informasi Spesifik NoobzVPN
     if (protocol === 'noobzvpn') {
         details += `<b>▪️ Limit Device:</b> <code>${data.limit_device}</code>\n`;
         details += `<b>▪️ Limit Bandwidth:</b> <code>${data.limit_bandwidth}</code>\n`;
     }
     
+    // Informasi SlowDNS (khusus SSH)
     if (data.slowdns) {
         details += `<b>▪️ Nameserver:</b> <code>${data.slowdns.nameserver}</code>\n`;
         details += `<b>▪️ Public Key:</b> <code>${data.slowdns.publik_key}</code>\n`;
     }
 
+    // Tanggal Kedaluwarsa
     const expiryDate = data.expiration_date || data.expired_on || data.expires_on;
     if (expiryDate) details += `<b>▪️ Masa Aktif Hingga:</b> <code>${expiryDate.split(' ')[0]}</code>\n`;
 
+    // Garis Pemisah
     details += `\n------------------------------------------\n\n`;
 
+    // [PERBAIKAN UTAMA DI SINI] Menampilkan Konfigurasi & Link secara dinamis
     if (data.links && Object.keys(data.links).length > 0) {
         details += `<b>👇 Klik untuk menyalin konfigurasi 👇</b>\n\n`;
         for (const [key, value] of Object.entries(data.links)) {
+            // Menampilkan setiap link yang ada di dalam objek 'links'
             details += `<b>${key.toUpperCase()}:</b>\n<code>${value}</code>\n\n`;
         }
-    } else if (data.config) {
+    } else if (data.config) { // Fallback untuk SSH yang mungkin tidak punya objek 'links'
         details += `<b>👇 Konfigurasi SSH 👇</b>\n<code>${data.config}</code>\n\n`;
     }
     
@@ -132,4 +148,7 @@ function formatAccountDetails(protocol, data, serverName) {
     return details;
 }
 
-module.exports = { createAccount, renewAccount };
+module.exports = {
+    createAccount,
+    renewAccount
+};
