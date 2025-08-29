@@ -4,30 +4,58 @@ const { writeLog } = require('../utils/logger');
 const crypto = require('crypto');
 
 function getApiClient(server) {
+    try {
+        new URL(server.domain);
+    } catch (error) {
+        throw new Error(`URL Server tidak valid: ${server.domain}`);
+    }
     return axios.create({
         baseURL: server.domain,
         headers: {
             'Authorization': `Bearer ${server.api_token}`,
             'Content-Type': 'application/json'
-        }
+        },
+        timeout: 60000 
     });
 }
 
-async function createAccount(server, protocol, username, password) {
+async function createAccount(server, protocol, username, password, duration) {
     const apiClient = getApiClient(server);
     let endpoint = '';
     let payload = {};
-    const masaAktif = 30;
+    const masaAktif = duration; 
 
     switch (protocol) {
-        case 'ssh': endpoint = '/api/addssh'; payload = { username, password, masa: masaAktif }; break;
-        case 'vmess': endpoint = '/api/add-vmess'; payload = { user: username, masaaktif: masaAktif }; break;
-        case 'vless': endpoint = '/api/add-vless'; payload = { user: username, masaaktif: masaAktif }; break;
-        case 'trojan': endpoint = '/api/add-trojan'; payload = { user: username, masaaktif: masaAktif }; break;
-        case 'ss': endpoint = '/api/add-ss'; payload = { user: username, masaaktif: masaAktif }; break;
-        case 's5': endpoint = '/api/add-s5'; payload = { username, password, masaaktif: masaAktif }; break;
-        case 'noobzvpn': endpoint = '/api/add-noobz'; payload = { user: username, device: 3, bw: 100, masaaktif: masaAktif }; break;
-        default: throw new Error(`Protokol "${protocol}" tidak didukung.`);
+        case 'ssh':
+            endpoint = '/api/addssh';
+            payload = { username, password, masa: masaAktif };
+            break;
+        case 'vmess':
+            endpoint = '/api/add-vmess';
+            payload = { user: username, masaaktif: masaAktif };
+            break;
+        case 'vless':
+            endpoint = '/api/add-vless';
+            payload = { user: username, masaaktif: masaAktif };
+            break;
+        case 'trojan':
+            endpoint = '/api/add-trojan';
+            payload = { user: username, masaaktif: masaAktif };
+            break;
+        case 'ss':
+            endpoint = '/api/add-ss';
+            payload = { user: username, masaaktif: masaAktif };
+            break;
+        case 's5':
+            endpoint = '/api/add-s5';
+            payload = { username, password, masaaktif: masaAktif };
+            break;
+        case 'noobzvpn':
+            endpoint = '/api/add-noobz';
+            payload = { user: username, device: 3, bw: 100, masaaktif: masaAktif };
+            break;
+        default:
+            throw new Error(`Protokol "${protocol}" tidak didukung.`);
     }
 
     try {
@@ -37,8 +65,10 @@ async function createAccount(server, protocol, username, password) {
         }
 
         writeLog(`[VpnApiService] Akun ${protocol} dibuat: ${username} di server ${server.name}`);
+        
         const formattedDetails = formatAccountDetails(protocol, response.data, server.name);
         const trxId = crypto.randomBytes(8).toString('hex');
+
         return {
             details: formattedDetails,
             password: response.data.password || password,
@@ -46,7 +76,7 @@ async function createAccount(server, protocol, username, password) {
         };
     } catch (error) {
         const errorMsg = error.response?.data?.message || error.message;
-        writeLog(`[VpnApiService] FATAL: Gagal createAccount ${username}: ${errorMsg}`);
+        writeLog(`[VpnApiService] FATAL: Gagal createAccount ${username} (${protocol}): ${errorMsg}`);
         throw new Error(errorMsg);
     }
 }
@@ -64,7 +94,8 @@ async function renewAccount(server, protocol, username) {
         case 'ss': endpoint = '/api/renew-ss'; break;
         case 's5': endpoint = '/api/renew-s5'; break;
         case 'noobzvpn': endpoint = '/api/renew-noobz'; break;
-        default: throw new Error(`Protokol "${protocol}" tidak bisa diperpanjang.`);
+        default:
+            throw new Error(`Protokol "${protocol}" tidak bisa diperpanjang.`);
     }
 
     try {
@@ -81,66 +112,53 @@ async function renewAccount(server, protocol, username) {
     }
 }
 
-/**
- * Memformat detail akun dari respons API menjadi string HTML yang rapi dan dinamis.
- * @param {string} protocol
- * @param {object} data - Objek respons dari API.
- * @param {string} serverName
- * @returns {string}
- */
 function formatAccountDetails(protocol, data, serverName) {
     let details = `✅ <b>Akun Berhasil Dibuat</b>\n\n`;
     details += `<b>▪️ Remarks:</b> <code>${data.user || data.username}</code>\n`;
     details += `<b>▪️ Server:</b> ${serverName}\n`;
-    details += `<b>▪️ Domain/IP:</b> <code>${data.domain || data.ip}</code>\n`;
+    if (data.domain) details += `<b>▪️ Domain/IP:</b> <code>${data.domain || data.ip}</code>\n`;
     
-    // Informasi Umum
     if (data.password) details += `<b>▪️ Password:</b> <code>${data.password}</code>\n`;
     if (data.uuid) details += `<b>▪️ UUID:</b> <code>${data.uuid}</code>\n`;
     if (data.cipher) details += `<b>▪️ Cipher:</b> <code>${data.cipher}</code>\n`;
 
-    // Informasi Port
-    if (data.ports) { // Untuk SSH
-        details += `<b>▪️ Port SSH:</b> <code>${data.ports.ssh || '-'}</code>\n`;
-        details += `<b>▪️ Port WS:</b> <code>${data.ports.ws_http || '-'} / ${data.ports.ws_tls || '-'} (SSL)</code>\n`;
-        details += `<b>▪️ Port Socks5:</b> <code>${data.ports.socks5 || '-'}</code>\n`;
-    } else { // Untuk protokol lain
+    if (data.ports) {
+        if(data.ports.ssh) details += `<b>▪️ Port SSH:</b> <code>${data.ports.ssh}</code>\n`;
+        if(data.ports.ws_tls) details += `<b>▪️ Port WS TLS:</b> <code>${data.ports.ws_tls}</code>\n`;
+        if(data.ports.ws_http) details += `<b>▪️ Port WS Non-TLS:</b> <code>${data.ports.ws_http}</code>\n`;
+        if(data.ports.socks5) details += `<b>▪️ Port Socks5:</b> <code>${data.ports.socks5}</code>\n`;
+    } else {
         if (data.https) details += `<b>▪️ Port TLS:</b> <code>${data.https}</code>\n`;
         if (data.http) details += `<b>▪️ Port Non-TLS:</b> <code>${data.http}</code>\n`;
+        if (data.tls_port) details += `<b>▪️ Port TLS:</b> <code>${data.tls_port}</code>\n`;
+        if (data.ntls_ports) details += `<b>▪️ Port Non-TLS:</b> <code>${data.ntls_ports}</code>\n`;
         if (data.grpc) details += `<b>▪️ Port GRPC:</b> <code>${data.grpc}</code>\n`;
     }
     
-    // Informasi Jaringan & Path
     if (data.path) details += `<b>▪️ Path:</b> <code>${data.path}</code>\n`;
     if (data.service_name) details += `<b>▪️ Service Name:</b> <code>${data.service_name}</code>\n`;
 
-    // Informasi Spesifik NoobzVPN
     if (protocol === 'noobzvpn') {
-        details += `<b>▪️ Limit Device:</b> <code>${data.limit_device}</code>\n`;
-        details += `<b>▪️ Limit Bandwidth:</b> <code>${data.limit_bandwidth}</code>\n`;
+        if (data.limit_device) details += `<b>▪️ Limit Device:</b> <code>${data.limit_device}</code>\n`;
+        if (data.limit_bandwidth) details += `<b>▪️ Limit Bandwidth:</b> <code>${data.limit_bandwidth}</code>\n`;
     }
     
-    // Informasi SlowDNS (khusus SSH)
     if (data.slowdns) {
-        details += `<b>▪️ Nameserver:</b> <code>${data.slowdns.nameserver}</code>\n`;
-        details += `<b>▪️ Public Key:</b> <code>${data.slowdns.publik_key}</code>\n`;
+        if(data.slowdns.nameserver) details += `<b>▪️ Nameserver:</b> <code>${data.slowdns.nameserver}</code>\n`;
+        if(data.slowdns.publik_key) details += `<b>▪️ Public Key:</b> <code>${data.slowdns.publik_key}</code>\n`;
     }
 
-    // Tanggal Kedaluwarsa
     const expiryDate = data.expiration_date || data.expired_on || data.expires_on;
     if (expiryDate) details += `<b>▪️ Masa Aktif Hingga:</b> <code>${expiryDate.split(' ')[0]}</code>\n`;
 
-    // Garis Pemisah
     details += `\n------------------------------------------\n\n`;
 
-    // [PERBAIKAN UTAMA DI SINI] Menampilkan Konfigurasi & Link secara dinamis
     if (data.links && Object.keys(data.links).length > 0) {
         details += `<b>👇 Klik untuk menyalin konfigurasi 👇</b>\n\n`;
         for (const [key, value] of Object.entries(data.links)) {
-            // Menampilkan setiap link yang ada di dalam objek 'links'
             details += `<b>${key.toUpperCase()}:</b>\n<code>${value}</code>\n\n`;
         }
-    } else if (data.config) { // Fallback untuk SSH yang mungkin tidak punya objek 'links'
+    } else if (data.config) {
         details += `<b>👇 Konfigurasi SSH 👇</b>\n<code>${data.config}</code>\n\n`;
     }
     
