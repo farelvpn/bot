@@ -2,7 +2,6 @@
 
 const userService = require('../services/userService');
 const serverService = require('../services/serverService');
-const sqliteService = require('../services/sqliteService');
 const { writeLog } = require('../utils/logger');
 const { prettyLine, backButton, formatRupiah } = require('../utils/helpers');
 const config = require('../config');
@@ -22,257 +21,76 @@ function isAdmin(userId) {
 }
 
 // ==========================================================
-// FUNGSI UTAMA PANEL ADMIN
+// HANDLER INPUT UTAMA
 // ==========================================================
-
-async function handleAdminPanelMain(bot, query) {
-  if (!isAdmin(query.from.id.toString())) return;
-  const text = `👑 *Panel Admin Utama*\n${prettyLine()}\nPilih tindakan yang ingin Anda lakukan:`;
-  const keyboard = [
-    [{ text: '👤 Kelola Pengguna', callback_data: 'admin_manage_users' }],
-    [{ text: '🗄️ Kelola Server VPN', callback_data: 'admin_manage_servers' }],
-    [{ text: '📢 Broadcast Pesan', callback_data: 'admin_broadcast_prompt' }],
-    [{ text: '📜 Lihat Transaksi', callback_data: 'admin_view_transactions' }],
-    [backButton('⬅️ Kembali ke Menu', 'back_menu')]
-  ];
-  await bot.editMessageText(text, {
-    chat_id: query.message.chat.id, message_id: query.message.message_id,
-    parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
-  }).catch(err => writeLog(`[AdminHandler] Error di handleAdminPanelMain: ${err.message}`));
-}
-
-// ==========================================================
-// KELOLA SERVER (DIROMBAK)
-// ==========================================================
-
-/**
- * Handler input utama untuk semua aksi admin yang menunggu input teks.
- */
 async function handleAdminInput(bot, msg) {
     const adminId = msg.from.id.toString();
     const state = pendingAdminAction[adminId];
+    if (!state) return;
 
-    if (state && typeof state.nextStep === 'function') {
-        state.nextStep(bot, msg);
-    } else if (state && state.action === 'balance_input') {
-        handleBalanceInput(bot, msg);
-    } else if (state && state.action === 'broadcast_input') {
-        handleBroadcastInput(bot, msg);
+    if (state.nextStep) {
+        return state.nextStep(bot, msg);
     }
-}
-
-// --- Langkah 1: Memulai Alur Penambahan Server ---
-async function startAddServerFlow(bot, query) {
-    const adminId = query.from.id.toString();
-    if (!isAdmin(adminId)) return;
     
-    const text = '➕ *Tambah Server Baru (1/5): ID Server*\n\n' +
-                 'Kirimkan *ID unik* untuk server baru (contoh: `sg-vultr`, hanya huruf kecil, angka, dan strip). ' +
-                 'ID ini tidak dapat diubah dan akan menjadi nama file.';
-    
-    await bot.editMessageText(text, {
-        chat_id: query.message.chat.id,
-        message_id: query.message.message_id,
-        parse_mode: 'Markdown',
-        reply_markup: { inline_keyboard: [[backButton('Batal', 'admin_manage_servers')]] }
-    });
-    
-    pendingAdminAction[adminId] = {
-        action: 'add_server',
-        serverData: {},
-        messageId: query.message.message_id,
-        chatId: query.message.chat.id,
-        nextStep: processServerId,
-    };
-}
-
-// --- Langkah 2: Memproses ID Server dan Meminta Nama ---
-async function processServerId(bot, msg) {
-    const adminId = msg.from.id.toString();
-    const state = pendingAdminAction[adminId];
-    const inputId = msg.text.trim();
-
-    await bot.deleteMessage(state.chatId, msg.message_id).catch(() => {});
-
-    if (!/^[a-z0-9-]+$/.test(inputId) || serverService.getServerDetails(inputId)) {
-        const err = await bot.sendMessage(state.chatId, '❌ ID tidak valid atau sudah digunakan. Coba lagi.');
-        setTimeout(() => bot.deleteMessage(state.chatId, err.message_id).catch(()=>{}), 5000);
-        return;
-    }
-
-    state.serverData.id = inputId;
-    state.nextStep = processServerName;
-
-    const text = '*(2/5): Nama Server*\n\nMasukkan *Nama Tampilan Server* (contoh: `SG Vultr 1`).';
-    await bot.editMessageText(text, { chatId: state.chatId, message_id: state.messageId, parse_mode: 'Markdown' });
-}
-
-// --- Langkah 3: Memproses Nama dan Meminta Domain ---
-async function processServerName(bot, msg) {
-    const adminId = msg.from.id.toString();
-    const state = pendingAdminAction[adminId];
-    const inputName = msg.text.trim();
-
-    await bot.deleteMessage(state.chatId, msg.message_id).catch(() => {});
-
-    state.serverData.name = inputName;
-    state.nextStep = processServerDomain;
-
-    const text = '*(3/5): Domain Server*\n\nMasukkan *Domain/Endpoint API* server.';
-    await bot.editMessageText(text, { chatId: state.chatId, message_id: state.messageId, parse_mode: 'Markdown' });
-}
-
-// --- Langkah 4: Memproses Domain dan Meminta Token API ---
-async function processServerDomain(bot, msg) {
-    const adminId = msg.from.id.toString();
-    const state = pendingAdminAction[adminId];
-    const inputDomain = msg.text.trim();
-
-    await bot.deleteMessage(state.chatId, msg.message_id).catch(() => {});
-
-    state.serverData.domain = inputDomain;
-    state.nextStep = processServerToken;
-
-    const text = '*(4/5): Token API*\n\nMasukkan *API Token* untuk server ini.';
-    await bot.editMessageText(text, { chatId: state.chatId, message_id: state.messageId, parse_mode: 'Markdown' });
-}
-
-// --- Langkah 5: Memproses Token dan Memulai Pengisian Harga ---
-async function processServerToken(bot, msg) {
-    const adminId = msg.from.id.toString();
-    const state = pendingAdminAction[adminId];
-    const inputToken = msg.text.trim();
-
-    await bot.deleteMessage(state.chatId, msg.message_id).catch(() => {});
-
-    state.serverData.api_token = inputToken;
-    state.serverData.protocols = {};
-    state.protocolIndex = 0;
-    state.nextStep = processProtocolPrice;
-
-    const firstProto = VPN_PROTOCOLS[state.protocolIndex];
-    const text = `*(5/${VPN_PROTOCOLS.length + 4}): Harga ${firstProto.name}*\n\n` +
-                 `Masukkan harga untuk *${firstProto.name}* (angka saja, misal: \`15000\`). Ketik \`0\` jika tidak tersedia.`;
-    await bot.editMessageText(text, { chatId: state.chatId, message_id: state.messageId, parse_mode: 'Markdown' });
-}
-
-// --- Langkah 6: Memproses Harga per Protokol ---
-async function processProtocolPrice(bot, msg) {
-    const adminId = msg.from.id.toString();
-    const state = pendingAdminAction[adminId];
-    const inputPrice = parseInt(msg.text.trim(), 10);
-
-    await bot.deleteMessage(state.chatId, msg.message_id).catch(() => {});
-
-    if (isNaN(inputPrice) || inputPrice < 0) {
-        const err = await bot.sendMessage(state.chatId, '❌ Harga tidak valid. Masukkan angka saja.');
-        setTimeout(() => bot.deleteMessage(state.chatId, err.message_id).catch(()=>{}), 5000);
-        return;
-    }
-
-    const currentProto = VPN_PROTOCOLS[state.protocolIndex];
-    if (inputPrice > 0) {
-        state.serverData.protocols[currentProto.id] = { price_per_30_days: inputPrice };
-    }
-
-    state.protocolIndex++;
-
-    if (state.protocolIndex < VPN_PROTOCOLS.length) {
-        const nextProto = VPN_PROTOCOLS[state.protocolIndex];
-        const text = `*(${state.protocolIndex + 5}/${VPN_PROTOCOLS.length + 4}): Harga ${nextProto.name}*\n\n` +
-                     `Masukkan harga untuk *${nextProto.name}* (ketik \`0\` jika tidak ada).`;
-        await bot.editMessageText(text, { chatId: state.chatId, message_id: state.messageId, parse_mode: 'Markdown' });
-    } else {
-        serverService.saveServerDetails(state.serverData.id, state.serverData);
-        delete pendingAdminAction[adminId];
-        
-        const text = `✅ *Server Berhasil Ditambahkan!*\n\nServer *${state.serverData.name}* telah disimpan.`;
-        await bot.editMessageText(text, {
-            chatId: state.chatId, message_id: state.messageId,
-            parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [[backButton('Kembali', 'admin_manage_servers')]] }
-        });
+    switch (state.action) {
+        case 'find_user':
+            return showUserManagementMenu(bot, msg);
+        case 'add_balance':
+        case 'reduce_balance':
+        case 'set_balance':
+            return processBalanceChange(bot, msg);
+        case 'broadcast_input':
+            return handleBroadcastInput(bot, msg);
+        case 'set_protocol_price':
+            return processNewPriceInput(bot, msg);
+        case 'edit_server_name':
+        case 'edit_server_token':
+            return processServerDetailChange(bot, msg);
+        default:
+            writeLog(`[AdminHandler] Aksi pending tidak diketahui: ${state.action}`);
     }
 }
 
-// --- FUNGSI ADMIN LAINNYA (TIDAK BERUBAH) ---
-async function handleManageUsers(bot, query) {
-    if (!isAdmin(query.from.id.toString())) return;
-    const text = `*👤 Kelola Pengguna*\n${prettyLine()}\nPilih aksi yang ingin Anda lakukan.`;
+// ==========================================================
+// NAVIGASI PANEL ADMIN UTAMA
+// ==========================================================
+async function handleAdminPanelMain(bot, queryOrMsg) {
+    const userId = queryOrMsg.from.id.toString();
+    if (!isAdmin(userId)) return;
+
+    const text = `👑 *Panel Admin Utama*\n${prettyLine()}\nPilih tindakan yang ingin Anda lakukan:`;
     const keyboard = [
-        [{ text: '➕ Tambah Saldo', callback_data: 'admin_add_balance_prompt' }],
-        [{ text: '➖ Kurangi Saldo', callback_data: 'admin_reduce_balance_prompt' }],
-        [{ text: '✏️ Set Saldo', callback_data: 'admin_set_balance_prompt' }],
-        [backButton('⬅️ Kembali', 'admin_panel_main')]
+        [{ text: '👤 Kelola Pengguna', callback_data: 'admin_manage_users' }],
+        [{ text: '🗄️ Kelola Server VPN', callback_data: 'admin_manage_servers' }],
+        [{ text: '📢 Broadcast Pesan', callback_data: 'admin_broadcast_prompt' }],
+        [backButton('⬅️ Kembali ke Menu', 'back_menu')]
     ];
-    await bot.editMessageText(text, { chat_id: query.message.chat.id, message_id: query.message.message_id, parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard } });
-}
-async function handleBalanceActionPrompt(bot, query, mode) {
-    const adminId = query.from.id.toString();
-    if (!isAdmin(adminId)) return;
-    let title = '';
-    if (mode === 'add') title = '💰 Tambah Saldo Manual';
-    if (mode === 'reduce') title = '➖ Kurangi Saldo Manual';
-    if (mode === 'set') title = '✏️ Set Saldo Manual';
-    pendingAdminAction[adminId] = {
-        action: 'balance_input', mode, step: 'userid',
-        messageId: query.message.message_id, chatId: query.message.chat.id
+
+    const options = {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: keyboard }
     };
-    await bot.editMessageText(`${title}\n\nKirimkan *User ID* dari pengguna yang saldonya ingin Anda ubah.`, {
-        chat_id: query.message.chat.id, message_id: query.message.message_id, parse_mode: 'Markdown',
-        reply_markup: { inline_keyboard: [[backButton('Batal', 'admin_manage_users')]] }
-    });
-}
-async function handleBalanceInput(bot, msg) {
-    const adminId = msg.from.id.toString();
-    const state = pendingAdminAction[adminId];
-    if (!state || state.action !== 'balance_input') return;
 
-    const input = msg.text.trim();
-    const { chatId, messageId, step, mode } = state;
-    await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
-
-    if (step === 'userid') {
-        const user = userService.getUser(input);
-        if (!user) {
-            const err = await bot.sendMessage(chatId, 'User ID tidak ditemukan. Coba lagi.');
-            setTimeout(() => bot.deleteMessage(chatId, err.message_id).catch(()=>{}), 5000);
-            return;
-        }
-        state.targetUserId = input;
-        state.step = 'amount';
-        await bot.editMessageText(`User ditemukan: @${user.username}\nSaldo: ${formatRupiah(user.balance)}\n\nKirimkan *jumlah nominal*.`, {
-            chatId, messageId, parse_mode: 'Markdown'
-        });
-    } else if (step === 'amount') {
-        const amount = parseInt(input);
-        if (isNaN(amount) || amount < 0) {
-            const err = await bot.sendMessage(chatId, 'Jumlah tidak valid.');
-            setTimeout(() => bot.deleteMessage(chatId, err.message_id).catch(()=>{}), 5000);
-            return;
-        }
-        const { targetUserId } = state;
-        let actionText = '';
-        if (mode === 'add') {
-            actionText = 'ditambahkan';
-            userService.updateUserBalance(targetUserId, amount, 'manual_admin_add');
-        } else if (mode === 'reduce') {
-            actionText = 'dikurangi';
-            userService.updateUserBalance(targetUserId, -amount, 'manual_admin_reduce');
-        } else if (mode === 'set') {
-            const user = userService.getUser(targetUserId);
-            const finalAmount = amount - user.balance;
-            actionText = `diatur menjadi ${formatRupiah(amount)}`;
-            userService.updateUserBalance(targetUserId, finalAmount, 'manual_admin_set');
-        }
-        const updatedUser = userService.getUser(targetUserId);
-        delete pendingAdminAction[adminId];
-        await bot.editMessageText(`✅ *Sukses!*\n\nSaldo User \`${targetUserId}\` telah ${actionText}.\nSaldo baru: *${formatRupiah(updatedUser.balance)}*`, {
-            chatId, messageId, parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [[backButton('Kembali', 'admin_manage_users')]] }
-        });
+    if (queryOrMsg.message) { 
+        const chatId = queryOrMsg.message.chat.id;
+        const messageId = queryOrMsg.message.message_id;
+        await bot.editMessageText(text, { ...options, chat_id: chatId, message_id: messageId })
+            .catch(err => {
+                if (!err.message.includes('message is not modified')) {
+                    writeLog(`[AdminHandler] Error edit di handleAdminPanelMain: ${err.message}`);
+                }
+            });
+    } else { 
+        const chatId = queryOrMsg.chat.id;
+        await bot.sendMessage(chatId, text, options)
+            .catch(err => writeLog(`[AdminHandler] Error send di handleAdminPanelMain: ${err.message}`));
     }
 }
+
+
+// ==========================================================
+// KELOLA SERVER
+// ==========================================================
 async function handleManageServersMenu(bot, query) {
     if (!isAdmin(query.from.id.toString())) return;
     const text = `*🗄️ Kelola Server VPN*\n${prettyLine()}\nPilih aksi yang ingin Anda lakukan.`;
@@ -287,15 +105,23 @@ async function handleManageServersMenu(bot, query) {
         parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
     });
 }
+
 async function handleSelectServer(bot, query, action) {
     if (!isAdmin(query.from.id.toString())) return;
     const allServers = serverService.getAllAvailableServers();
     if (allServers.length === 0) {
-        await bot.answerCallbackQuery(query.id, { text: 'Tidak ada server yang tersedia.', show_alert: true });
-        return;
+        return bot.answerCallbackQuery(query.id, { text: 'Tidak ada server yang tersedia.', show_alert: true });
     }
-    const title = action === 'edit' ? '✏️ Edit Server' : '🗑️ Hapus Server';
-    const callbackPrefix = action === 'edit' ? 'admin_edit_server_details_' : 'admin_delete_server_confirm_';
+
+    let title, callbackPrefix;
+    if (action === 'edit') {
+        title = '✏️ Edit Server';
+        callbackPrefix = 'admin_edit_server_details_';
+    } else {
+        title = '🗑️ Hapus Server';
+        callbackPrefix = 'admin_delete_server_confirm_';
+    }
+
     const keyboard = allServers.map(server => ([{
         text: server.name,
         callback_data: `${callbackPrefix}${server.id}`
@@ -306,15 +132,498 @@ async function handleSelectServer(bot, query, action) {
         parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
     });
 }
+
+
+// ==========================================================
+// ALUR TAMBAH SERVER BARU
+// ==========================================================
+async function startAddServerFlow(bot, query) {
+    const adminId = query.from.id.toString();
+    if (!isAdmin(adminId)) return;
+    
+    const text = '➕ *Tambah Server Baru (1/4): ID Server*\n\n' +
+                 'Kirimkan *ID unik* untuk server (contoh: `sg-vultr`). Hanya huruf kecil, angka, dan strip.';
+    
+    await bot.editMessageText(text, {
+        chat_id: query.message.chat.id, message_id: query.message.message_id,
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[backButton('Batal', 'admin_manage_servers')]] }
+    });
+    
+    pendingAdminAction[adminId] = {
+        action: 'add_server', serverData: {},
+        messageId: query.message.message_id, chatId: query.message.chat.id,
+        nextStep: processServerId,
+    };
+}
+
+async function processServerId(bot, msg) {
+    const adminId = msg.from.id.toString();
+    const state = pendingAdminAction[adminId];
+    const inputId = msg.text.trim();
+    await bot.deleteMessage(state.chatId, msg.message_id).catch(() => {});
+
+    if (!/^[a-z0-9-]+$/.test(inputId) || serverService.getServerDetails(inputId)) {
+        const err = await bot.sendMessage(state.chatId, '❌ ID tidak valid atau sudah digunakan. Coba lagi.');
+        setTimeout(() => bot.deleteMessage(state.chatId, err.message_id).catch(()=>{}), 5000);
+        return;
+    }
+
+    state.serverData.id = inputId;
+    state.nextStep = processServerName;
+    const text = '*(2/4): Nama Tampilan Server*\n\nMasukkan nama untuk server ini (contoh: `SG Vultr 1`).';
+    await bot.editMessageText(text, { chat_id: state.chatId, message_id: state.messageId, parse_mode: 'Markdown' });
+}
+
+async function processServerName(bot, msg) {
+    const adminId = msg.from.id.toString();
+    const state = pendingAdminAction[adminId];
+    state.serverData.name = msg.text.trim();
+    await bot.deleteMessage(state.chatId, msg.message_id).catch(() => {});
+    state.nextStep = processServerDomain;
+    const text = '*(3/4): Domain Server*\n\nMasukkan domain API server (contoh: `api.domain.com`).';
+    await bot.editMessageText(text, { chat_id: state.chatId, message_id: state.messageId, parse_mode: 'Markdown' });
+}
+
+async function processServerDomain(bot, msg) {
+    const adminId = msg.from.id.toString();
+    const state = pendingAdminAction[adminId];
+    let inputDomain = msg.text.trim();
+    await bot.deleteMessage(state.chatId, msg.message_id).catch(() => {});
+
+    if (!inputDomain.startsWith('http://') && !inputDomain.startsWith('https://')) {
+        inputDomain = 'https://' + inputDomain;
+    }
+
+    state.serverData.domain = inputDomain;
+    state.nextStep = processServerToken;
+    const text = '*(4/4): Token API*\n\nTerakhir, masukkan *API Token* untuk server ini.';
+    await bot.editMessageText(text, { chat_id: state.chatId, message_id: state.messageId, parse_mode: 'Markdown' });
+}
+
+async function processServerToken(bot, msg) {
+    const adminId = msg.from.id.toString();
+    const state = pendingAdminAction[adminId];
+    await bot.deleteMessage(state.chatId, msg.message_id).catch(() => {});
+
+    state.serverData.api_token = msg.text.trim();
+    state.serverData.protocols = {};
+    VPN_PROTOCOLS.forEach(p => { 
+        state.serverData.protocols[p.id] = { 
+            enabled: false,
+            prices: { user: 0, reseller: 0 } 
+        };
+    });
+    
+    serverService.saveServerDetails(state.serverData.id, state.serverData);
+    delete pendingAdminAction[adminId];
+    
+    const text = `✅ *Server Berhasil Ditambahkan!*\n\nServer *${state.serverData.name}* telah disimpan.\n\nSekarang, silakan aktifkan protokol dan atur harganya melalui menu *Edit Server*.`;
+    await bot.editMessageText(text, {
+        chat_id: state.chatId, message_id: state.messageId, parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[backButton('Kembali', 'admin_manage_servers')]] }
+    });
+}
+
+
+// ==========================================================
+// ALUR EDIT SERVER (UI DISEMPURNAKAN)
+// ==========================================================
+async function handleEditServerDetails(bot, query) {
+    if (!isAdmin(query.from.id.toString())) return;
+    const serverId = query.data.split('_').pop();
+    const server = serverService.getServerDetails(serverId);
+
+    if (!server) {
+        await bot.answerCallbackQuery(query.id, { text: 'Server tidak ditemukan.', show_alert: true });
+        return handleManageServersMenu(bot, query);
+    }
+
+    const censoredToken = `${(server.api_token || '').substring(0, 4)}***********`;
+
+    let text = `✏️ *Kelola Server: ${server.name}*\n`;
+    text += `${prettyLine()}\n`;
+    text += `*ID:* \`${server.id}\`\n`;
+    text += `*Domain:* \`${server.domain}\`\n`;
+    text += `*API Token:* \`${censoredToken}\`\n\n`;
+    text += `*Ringkasan Protokol Aktif:*`;
+
+    const keyboard = [];
+    
+    keyboard.push([
+        { text: '✏️ Ubah Detail Server', callback_data: `admin_config_server_${serverId}` },
+        { text: '⚙️ Atur Protokol & Harga', callback_data: `admin_manage_protocols_${serverId}` }
+    ]);
+    
+    let hasActiveProtocol = false;
+    VPN_PROTOCOLS.forEach(proto => {
+        const protoData = server.protocols[proto.id];
+        if (protoData && protoData.enabled) {
+            hasActiveProtocol = true;
+            text += `\n✅ *${proto.name}* (User: ${formatRupiah(protoData.prices.user)} | Reseller: ${formatRupiah(protoData.prices.reseller)})`;
+        }
+    });
+
+    if (!hasActiveProtocol) {
+        text += `\n\n_Belum ada protokol yang diaktifkan._`;
+    }
+    
+    keyboard.push([backButton('⬅️ Kembali ke Daftar Server', 'admin_edit_server_select')]);
+    
+    await bot.editMessageText(text, {
+        chat_id: query.message.chat.id, message_id: query.message.message_id,
+        parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
+    });
+}
+
+async function handleConfigServer(bot, query) {
+    if (!isAdmin(query.from.id.toString())) return;
+    const serverId = query.data.split('_').pop();
+    const text = `✏️ *Ubah Detail Server*\n\nPilih detail yang ingin Anda ubah:`;
+    const keyboard = [
+        [{ text: 'Ubah Nama Tampilan', callback_data: `admin_edit_servername_${serverId}` }],
+        [{ text: 'Ubah API Key', callback_data: `admin_edit_servertoken_${serverId}` }],
+        [backButton('⬅️ Kembali', `admin_edit_server_details_${serverId}`)]
+    ];
+    await bot.editMessageText(text, {
+        chat_id: query.message.chat.id, message_id: query.message.message_id,
+        parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
+    });
+}
+
+async function handleManageProtocols(bot, query) {
+    if (!isAdmin(query.from.id.toString())) return;
+    const serverId = query.data.split('_').pop();
+    const server = serverService.getServerDetails(serverId);
+    if (!server) return;
+
+    let text = `⚙️ *Atur Harga & Protokol*\nServer: *${server.name}*\n${prettyLine()}`;
+    const keyboard = [];
+
+    VPN_PROTOCOLS.forEach(proto => {
+        const protoData = server.protocols[proto.id] || { enabled: false, prices: { user: 0, reseller: 0 } };
+        const statusIcon = protoData.enabled ? '✅' : '❌';
+        const userPrice = formatRupiah(protoData.prices.user);
+        const resellerPrice = formatRupiah(protoData.prices.reseller);
+        const toggleText = protoData.enabled ? 'Nonaktifkan' : 'Aktifkan';
+
+        text += `\n\n${statusIcon} *${proto.name}*`;
+        text += `\n   ├─ User: ${userPrice}`;
+        text += `\n   └─ Reseller: ${resellerPrice}`;
+        
+        keyboard.push([
+            { text: `Ubah Harga ${proto.name}`, callback_data: `admin_set_price_${serverId}_${proto.id}` },
+            { text: `${toggleText} ${proto.name}`, callback_data: `admin_toggle_protocol_${serverId}_${proto.id}` }
+        ]);
+    });
+
+    keyboard.push([backButton('⬅️ Kembali', `admin_edit_server_details_${serverId}`)]);
+
+    await bot.editMessageText(text, {
+        chat_id: query.message.chat.id, message_id: query.message.message_id,
+        parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
+    });
+}
+
+
+async function promptServerDetailChange(bot, query) {
+    const adminId = query.from.id.toString();
+    if (!isAdmin(adminId)) return;
+
+    const parts = query.data.split('_');
+    const type = parts[2];
+    const serverId = parts.pop();
+
+    let title, promptText, action;
+    if (type === 'servername') {
+        title = '✏️ Ubah Nama Server';
+        promptText = 'Kirimkan nama tampilan baru untuk server ini.';
+        action = 'edit_server_name';
+    } else {
+        title = '🔑 Ubah API Key';
+        promptText = 'Kirimkan API Key baru untuk server ini.';
+        action = 'edit_server_token';
+    }
+
+    pendingAdminAction[adminId] = {
+        action, serverId,
+        messageId: query.message.message_id, chatId: query.message.chat.id
+    };
+
+    await bot.editMessageText(`*${title}*\n\n${promptText}`, {
+        chat_id: query.message.chat.id, message_id: query.message.message_id, parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[backButton('Batal', `admin_config_server_${serverId}`)]] }
+    });
+}
+
+async function processServerDetailChange(bot, msg) {
+    const adminId = msg.from.id.toString();
+    const state = pendingAdminAction[adminId];
+    if (!state) return;
+
+    const { serverId, chatId, messageId, action } = state;
+    const newValue = msg.text.trim();
+    
+    await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+    delete pendingAdminAction[adminId];
+
+    const server = serverService.getServerDetails(serverId);
+    if (action === 'edit_server_name') {
+        server.name = newValue;
+    } else {
+        server.api_token = newValue;
+    }
+    serverService.saveServerDetails(serverId, server);
+
+    const refreshedQuery = {
+        from: { id: adminId },
+        data: `admin_edit_server_details_${serverId}`,
+        message: { chat: { id: chatId }, message_id: messageId }
+    };
+    await handleEditServerDetails(bot, refreshedQuery);
+}
+
+
+async function promptNewPrice(bot, query) {
+    const adminId = query.from.id.toString();
+    if (!isAdmin(adminId)) return;
+    const [,,, serverId, protoId] = query.data.split('_');
+    const protoName = VPN_PROTOCOLS.find(p => p.id === protoId)?.name || protoId.toUpperCase();
+
+    pendingAdminAction[adminId] = {
+        action: 'set_protocol_price', serverId, protoId,
+        step: 'get_user_price',
+        messageId: query.message.message_id,
+        chatId: query.message.chat.id
+    };
+
+    await bot.editMessageText(`✏️ *Ubah Harga ${protoName} (1/2)*\n\nKirimkan harga baru untuk *User* (contoh: \`15000\`).`, {
+        chat_id: query.message.chat.id, message_id: query.message.message_id, parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[backButton('Batal', `admin_manage_protocols_${serverId}`)]] }
+    });
+}
+
+async function processNewPriceInput(bot, msg) {
+    const adminId = msg.from.id.toString();
+    const state = pendingAdminAction[adminId];
+    if (!state || state.action !== 'set_protocol_price') return;
+
+    const { serverId, protoId, chatId, messageId, step } = state;
+    const newPrice = parseInt(msg.text.trim(), 10);
+    await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+
+    if (isNaN(newPrice) || newPrice < 0) {
+        delete pendingAdminAction[adminId];
+        return;
+    }
+
+    if (step === 'get_user_price') {
+        state.userPrice = newPrice;
+        state.step = 'get_reseller_price';
+        const protoName = VPN_PROTOCOLS.find(p => p.id === protoId)?.name || protoId.toUpperCase();
+        await bot.editMessageText(`✏️ *Ubah Harga ${protoName} (2/2)*\n\nSekarang kirimkan harga baru untuk *Reseller* (contoh: \`10000\`).`, {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown'
+        });
+    } else if (step === 'get_reseller_price') {
+        const server = serverService.getServerDetails(serverId);
+        if (!server.protocols[protoId]) server.protocols[protoId] = { prices: {} };
+        
+        server.protocols[protoId].prices = {
+            user: state.userPrice,
+            reseller: newPrice
+        };
+        serverService.saveServerDetails(serverId, server);
+        delete pendingAdminAction[adminId];
+
+        const refreshedQuery = {
+            from: { id: adminId },
+            data: `admin_manage_protocols_${serverId}`,
+            message: { chat: { id: chatId }, message_id: messageId }
+        };
+        await handleManageProtocols(bot, refreshedQuery);
+    }
+}
+
+async function toggleProtocolStatus(bot, query) {
+    const adminId = query.from.id.toString();
+    if (!isAdmin(adminId)) return;
+    const [,,, serverId, protoId] = query.data.split('_');
+    const server = serverService.getServerDetails(serverId);
+    if (!server) return;
+
+    if (!server.protocols[protoId]) {
+        server.protocols[protoId] = { enabled: false, prices: { user: 0, reseller: 0 } };
+    }
+    server.protocols[protoId].enabled = !server.protocols[protoId].enabled;
+    serverService.saveServerDetails(serverId, server);
+    
+    const statusText = server.protocols[protoId].enabled ? 'diaktifkan' : 'dinonaktifkan';
+    await bot.answerCallbackQuery(query.id, { text: `Protokol ${protoId.toUpperCase()} telah ${statusText}` });
+
+    const refreshedQuery = { ...query };
+    await handleManageProtocols(bot, refreshedQuery);
+}
+
+
+// ==========================================================
+// KELOLA PENGGUNA (DIROMBAK TOTAL)
+// ==========================================================
+async function handleManageUsers(bot, query) {
+    if (!isAdmin(query.from.id.toString())) return;
+
+    const adminId = query.from.id.toString();
+    pendingAdminAction[adminId] = {
+        action: 'find_user',
+        messageId: query.message.message_id,
+        chatId: query.message.chat.id
+    };
+
+    const text = `*👤 Kelola Pengguna*\n\nSilakan kirimkan *User ID* dari pengguna yang ingin Anda kelola.`;
+    const keyboard = [[backButton('⬅️ Kembali', 'admin_panel_main')]];
+
+    await bot.editMessageText(text, {
+        chat_id: query.message.chat.id,
+        message_id: query.message.message_id,
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: keyboard }
+    });
+}
+
+async function showUserManagementMenu(bot, msg) {
+    const adminId = msg.from.id.toString();
+    const state = pendingAdminAction[adminId] || { chatId: msg.chat.id, messageId: msg.message_id };
+    const targetUserId = msg.text.trim();
+    
+    if (state.action === 'find_user') {
+        await bot.deleteMessage(state.chatId, msg.message_id).catch(() => {});
+    }
+    
+    const user = userService.getUser(targetUserId);
+
+    if (!user) {
+        delete pendingAdminAction[adminId];
+        const errText = `❌ User ID \`${targetUserId}\` tidak ditemukan.`;
+        await bot.editMessageText(errText, {
+            chat_id: state.chatId, message_id: state.messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[backButton('Coba Lagi', 'admin_manage_users')]]}
+        });
+        return;
+    }
+
+    delete pendingAdminAction[adminId];
+    const roleText = user.role.charAt(0).toUpperCase() + user.role.slice(1);
+    const toggleRoleTarget = user.role === 'user' ? 'reseller' : 'user';
+    const toggleRoleText = `Jadikan ${toggleRoleTarget.charAt(0).toUpperCase() + toggleRoleTarget.slice(1)}`;
+
+    let text = `*👤 Mengelola Pengguna*\n${prettyLine()}\n`;
+    text += `*ID:* \`${targetUserId}\`\n`;
+    text += `*Username:* @${user.username || 'tidak_ada'}\n`;
+    text += `*Role:* ${roleText}\n`;
+    text += `*Saldo:* ${formatRupiah(user.balance)}\n\n`;
+    text += `Pilih tindakan yang ingin Anda lakukan:`;
+
+    const keyboard = [
+        [{ text: '➕ Tambah Saldo', callback_data: `admin_user_add_balance_${targetUserId}` }, { text: '➖ Kurangi Saldo', callback_data: `admin_user_reduce_balance_${targetUserId}` }],
+        [{ text: '✏️ Set Saldo', callback_data: `admin_user_set_balance_${targetUserId}` }],
+        [{ text: `🔄 ${toggleRoleText}`, callback_data: `admin_user_toggle_role_${targetUserId}` }],
+        [backButton('⬅️ Cari User Lain', 'admin_manage_users')]
+    ];
+
+    await bot.editMessageText(text, {
+        chat_id: state.chatId, message_id: state.messageId,
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: keyboard }
+    });
+}
+
+async function promptForBalanceChange(bot, query) {
+    const adminId = query.from.id.toString();
+    if (!isAdmin(adminId)) return;
+
+    const parts = query.data.split('_');
+    const mode = parts[2];
+    const targetUserId = parts.pop();
+    
+    let title = '';
+    if (mode === 'add') title = '➕ Tambah Saldo';
+    if (mode === 'reduce') title = '➖ Kurangi Saldo';
+    if (mode === 'set') title = '✏️ Set Saldo';
+
+    pendingAdminAction[adminId] = {
+        action: `${mode}_balance`,
+        targetUserId,
+        messageId: query.message.message_id,
+        chatId: query.message.chat.id
+    };
+
+    await bot.editMessageText(`*${title}*\n\nKirimkan jumlah nominal untuk User ID \`${targetUserId}\`.`, {
+        chat_id: query.message.chat.id, message_id: query.message.message_id, parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[backButton('Batal', `admin_user_manage_${targetUserId}`)]] }
+    });
+}
+
+async function processBalanceChange(bot, msg) {
+    const adminId = msg.from.id.toString();
+    const state = pendingAdminAction[adminId];
+    if (!state) return;
+
+    const { targetUserId, chatId, messageId, action } = state;
+    const amount = parseInt(msg.text.trim());
+
+    await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+    delete pendingAdminAction[adminId];
+
+    if (isNaN(amount) || amount < 0) return;
+
+    if (action === 'add_balance') {
+        userService.updateUserBalance(targetUserId, amount, 'manual_admin_add');
+    } else if (action === 'reduce_balance') {
+        userService.updateUserBalance(targetUserId, -amount, 'manual_admin_reduce');
+    } else if (action === 'set_balance') {
+        const user = userService.getUser(targetUserId);
+        const diff = amount - user.balance;
+        userService.updateUserBalance(targetUserId, diff, 'manual_admin_set');
+    }
+    
+    const refreshedMsg = {
+        from: { id: adminId },
+        chat: { id: chatId },
+        message_id: messageId,
+        text: targetUserId
+    };
+    await showUserManagementMenu(bot, refreshedMsg);
+}
+
+async function processRoleChange(bot, query) {
+    const adminId = query.from.id.toString();
+    if (!isAdmin(adminId)) return;
+
+    const targetUserId = query.data.split('_').pop();
+    const user = userService.getUser(targetUserId);
+    if (!user) return;
+
+    const newRole = user.role === 'user' ? 'reseller' : 'user';
+    userService.updateUserRole(targetUserId, newRole);
+    
+    await bot.answerCallbackQuery(query.id, { text: `Role pengguna telah diubah menjadi ${newRole}`});
+    
+    const refreshedMsg = {
+        ...query.message,
+        text: targetUserId
+    };
+    await showUserManagementMenu(bot, refreshedMsg);
+}
+
 async function handleBroadcastPrompt(bot, query) {
     const adminId = query.from.id.toString();
     if (!isAdmin(adminId)) return;
     pendingAdminAction[adminId] = { action: 'broadcast_input', messageId: query.message.message_id, chatId: query.message.chat.id };
-    await bot.editMessageText('📢 *Kirim Broadcast*\n\nKirimkan pesan yang ingin Anda siarkan ke semua pengguna. Pesan mendukung format Markdown.', {
+    await bot.editMessageText('📢 *Kirim Broadcast*\n\nKirimkan pesan yang ingin Anda siarkan ke semua pengguna. Mendukung format Markdown.', {
         chat_id: query.message.chat.id, message_id: query.message.message_id, parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: [[backButton('Batal', 'admin_panel_main')]] }
     });
 }
+
 async function handleBroadcastInput(bot, msg) {
     const adminId = msg.from.id.toString();
     const state = pendingAdminAction[adminId];
@@ -324,10 +633,10 @@ async function handleBroadcastInput(bot, msg) {
     const broadcastMessage = msg.text;
     const { chatId, messageId } = state;
 
-    const allUsers = userService.loadDB().users;
+    const allUsers = userService.getAllUsers();
     const userIds = Object.keys(allUsers);
 
-    await bot.editMessageText(`⏳ Memulai broadcast ke *${userIds.length}* pengguna...`, { chatId, messageId, parse_mode: 'Markdown' });
+    await bot.editMessageText(`⏳ Memulai broadcast ke *${userIds.length}* pengguna...`, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' });
 
     let successCount = 0;
     let failCount = 0;
@@ -347,43 +656,28 @@ async function handleBroadcastInput(bot, msg) {
                    `Berhasil terkirim: *${successCount}*\n` +
                    `Gagal terkirim: *${failCount}*`;
     
-    await bot.editMessageText(report, { chatId, messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[backButton('Kembali', 'admin_panel_main')]] } });
+    await bot.editMessageText(report, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[backButton('Kembali', 'admin_panel_main')]] } });
 }
-async function handleViewTransactions(bot, query) {
-    if (!isAdmin(query.from.id.toString())) return;
-    const topups = await sqliteService.all('SELECT * FROM topup_logs ORDER BY created_at DESC LIMIT 10');
-    
-    let text = `*📜 10 Transaksi Topup Terakhir*\n${prettyLine()}\n`;
-    if (topups.length === 0) {
-        text += '_Belum ada transaksi topup._';
-    } else {
-        topups.forEach(trx => {
-            const date = new Date(trx.created_at).toLocaleString('id-ID');
-            text += `*ID Pengguna:* \`${trx.telegram_id}\`\n` +
-                    `*Jumlah:* ${formatRupiah(trx.amount)}\n` +
-                    `*Invoice:* \`${trx.invoice_id || '-'}\`\n` +
-                    `*Tanggal:* ${date}\n${prettyLine()}\n`;
-        });
-    }
 
-    await bot.editMessageText(text, {
-        chat_id: query.message.chat.id, message_id: query.message.message_id, parse_mode: 'Markdown',
-        reply_markup: { inline_keyboard: [[backButton('Kembali', 'admin_panel_main')]] }
-    });
-}
 
 module.exports = {
   isAdmin,
-  handleAdminPanelMain,
   handleAdminInput,
-  startAddServerFlow,
-  handleManageUsers,
-  handleBalanceActionPrompt,
-  handleBalanceInput,
+  handleAdminPanelMain,
   handleManageServersMenu,
   handleSelectServer,
+  startAddServerFlow,
+  handleEditServerDetails,
+  handleConfigServer,
+  handleManageProtocols,
+  promptNewPrice,
+  toggleProtocolStatus,
+  promptServerDetailChange,
+  handleManageUsers,
+  showUserManagementMenu,
+  promptForBalanceChange,
+  processRoleChange,
   handleBroadcastPrompt,
   handleBroadcastInput,
-  handleViewTransactions,
   pendingAdminAction
 };
