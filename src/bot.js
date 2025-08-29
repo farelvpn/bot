@@ -65,25 +65,41 @@ async function checkExpiredAccounts() {
     }
 }
 
+// Menjalankan pengecekan setiap jam
 setInterval(checkExpiredAccounts, 1000 * 60 * 60);
+// Menjalankan pengecekan saat bot pertama kali hidup
 checkExpiredAccounts();
 
 bot.on('message', async (msg) => {
+    // Abaikan pesan yang bukan dari private chat atau tidak berisi teks
     if (msg.chat.type !== 'private' || !msg.text) return;
+
     const userId = msg.from.id.toString();
     const username = msg.from.username || `user${userId}`;
     
+    // Pastikan user terdaftar di database
     userService.ensureUser(userId, username);
   
-    if (topupHandler.pendingTopupInput[userId]?.active) return topupHandler.processTopupAmount(bot, msg);
-    if (vpnHandler.pendingVpnAction[userId]) return vpnHandler.handleProcessUsername(bot, msg);
+    // Cek apakah ada aksi yang sedang menunggu input dari pengguna
+    if (topupHandler.pendingTopupInput[userId]) {
+        return topupHandler.processTopupAmount(bot, msg);
+    }
+    if (vpnHandler.pendingVpnAction[userId]) {
+        return vpnHandler.handleVpnUserInput(bot, msg);
+    }
     if (adminHandler.pendingAdminAction[userId]) {
         return adminHandler.handleAdminInput(bot, msg);
     }
 
-    if (msg.text.startsWith('/start')) return coreHandler.handleStartCommand(bot, msg);
-    if (msg.text.startsWith('/admin')) return adminHandler.handleAdminPanelMain(bot, { from: msg.from, message: msg });
+    // Menangani perintah
+    if (msg.text.startsWith('/start')) {
+        return coreHandler.handleStartCommand(bot, msg);
+    }
+    if (msg.text.startsWith('/admin')) {
+        return adminHandler.handleAdminPanelMain(bot, msg);
+    }
   
+    // Jika tidak ada perintah atau aksi pending, tampilkan menu utama
     await coreHandler.sendMainMenu(bot, userId, msg.chat.id, null);
 });
 
@@ -91,6 +107,8 @@ bot.on('callback_query', (query) => {
     const userId = query.from.id.toString();
     const username = query.from.username || `user${userId}`;
     userService.ensureUser(userId, username);
+    
+    // Rute semua callback ke callbackRouter
     callbackRouter.routeCallbackQuery(bot, query);
 });
 
