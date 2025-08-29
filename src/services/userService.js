@@ -6,46 +6,21 @@ const sqliteService = require('./sqliteService');
 
 const DB_PATH = config.paths.db;
 
-/**
- * [FUNGSI DIPERBAIKI]
- * Memuat database dari file JSON dengan aman.
- * Jika file kosong, rusak, atau tidak ada, akan membuat struktur default.
- */
 function loadDB() {
   const defaultDB = {
     users: {},
-    settings: {
-      topup: {
-        minAmount: 10000,
-        maxAmount: 1000000,
-      }
-    },
+    settings: { topup: { minAmount: 10000, maxAmount: 1000000 } },
   };
 
-  // Jika file tidak ada, langsung kembalikan struktur default
-  if (!fs.existsSync(DB_PATH)) {
-    return defaultDB;
-  }
+  if (!fs.existsSync(DB_PATH)) return defaultDB;
   
   try {
     const fileContent = fs.readFileSync(DB_PATH, 'utf-8');
-    // Jika file ada tapi kosong, kembalikan struktur default
-    if (!fileContent.trim()) {
-        return defaultDB;
-    }
+    if (!fileContent.trim()) return defaultDB;
     const data = JSON.parse(fileContent);
-    
-    // Pastikan properti 'users' dan 'settings' selalu ada
-    // Ini mencegah error jika file JSON hanya berisi {}
-    return {
-        ...defaultDB,
-        ...data,
-        users: data.users || {},
-        settings: data.settings || defaultDB.settings
-    };
+    return { ...defaultDB, ...data, users: data.users || {}, settings: data.settings || defaultDB.settings };
   } catch (error) {
-    writeLog(`[UserService] Error membaca atau parsing database.json: ${error.message}. Menggunakan struktur DB default.`);
-    // Jika terjadi error saat parsing, kembalikan struktur default
+    writeLog(`[UserService] Error membaca database.json: ${error.message}. Menggunakan DB default.`);
     return defaultDB;
   }
 }
@@ -60,13 +35,18 @@ function ensureUser(userId, username) {
     db.users[userId] = {
       username: username || `user${userId}`,
       balance: 0,
-      role: 'user',
+      role: 'user', // Peran default adalah 'user'
       registered_at: new Date().toISOString(),
       topup_history: [],
     };
     saveDB(db);
-    writeLog(`[UserService] Pengguna baru terdaftar: ID ${userId}, Username @${username}`);
+    writeLog(`[UserService] Pengguna baru terdaftar: ID ${userId}, Username @${username}, Role: user`);
     return true;
+  }
+  // Memastikan pengguna lama memiliki properti role
+  if (!db.users[userId].role) {
+    db.users[userId].role = 'user';
+    saveDB(db);
   }
   return false;
 }
@@ -103,9 +83,23 @@ function getUser(userId) {
   return db.users[userId] || null;
 }
 
-function getTopupSettings() {
+function updateUserRole(userId, newRole) {
     const db = loadDB();
-    return db.settings?.topup || { minAmount: 10000, maxAmount: 1000000 };
+    if (!db.users[userId]) return false;
+    if (newRole !== 'user' && newRole !== 'reseller') return false;
+    
+    db.users[userId].role = newRole;
+    saveDB(db);
+    writeLog(`[UserService] Role untuk User ID ${userId} telah diubah menjadi ${newRole}.`);
+    return true;
 }
 
-module.exports = { loadDB, saveDB, ensureUser, updateUserBalance, getUser, getTopupSettings };
+function getTopupSettings() {
+    return loadDB().settings?.topup || { minAmount: 10000, maxAmount: 1000000 };
+}
+
+function getAllUsers() {
+    return loadDB().users;
+}
+
+module.exports = { ensureUser, updateUserBalance, getUser, updateUserRole, getTopupSettings, getAllUsers };
