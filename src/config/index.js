@@ -28,7 +28,7 @@ module.exports = {
   paths: {
     db: path.join(__dirname, '../../database.json'),
     serversConfigDir: path.join(__dirname, '../../servers'),
-    logs: path.join(__dirname, '../../logs'),
+    logFile: process.env.LOG_PATH || path.join(__dirname, '../../logs/bot.log'),
     sqlite: path.join(__dirname, '../../transactions.sqlite3')
   },
 };
