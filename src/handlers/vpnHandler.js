@@ -4,6 +4,7 @@ const sqliteService = require('../services/sqliteService');
 const vpnApiService = require('../services/vpnApiService');
 const userService = require('../services/userService');
 const notificationService = require('../services/notificationService');
+const config = require('../config');
 const { writeLog } = require('../utils/logger');
 const { prettyLine, backButton, formatRupiah } = require('../utils/helpers');
 const crypto = require('crypto');
@@ -34,9 +35,17 @@ async function handleVpnUserInput(bot, msg) {
 // ==========================================================
 async function handleVpnMenu(bot, query) {
     const text = `🛡️ *Menu VPN*\n${prettyLine()}\nSilakan pilih salah satu menu di bawah ini untuk mengelola layanan VPN Anda.`;
+    
+    const row1 = [{ text: '🛒 Beli Akun Baru', callback_data: 'vpn_buy_select_server' }];
+    
+    // Tombol trial hanya muncul jika diaktifkan di .env
+    if (config.trial.enabled) {
+        row1.push({ text: '🎁 Trial Akun', callback_data: 'vpn_trial_select_server' });
+    }
+
     const keyboard = [
-        [{ text: '🛒 Beli Akun VPN Baru', callback_data: 'vpn_buy_select_server' }],
-        [{ text: '🔄 Perpanjang Akun VPN', callback_data: 'vpn_renew_select_account' }],
+        row1,
+        [{ text: '🔄 Perpanjang Akun', callback_data: 'vpn_renew_select_account' }],
         [backButton('⬅️ Kembali', 'back_menu')]
     ];
     await bot.editMessageText(text, {
@@ -49,10 +58,10 @@ async function handleVpnMenu(bot, query) {
 
 
 // ==========================================================
-// ALUR PEMBELIAN AKUN BARU (UI DISEMPURNAKAN)
+// ALUR PEMBELIAN AKUN BARU
 // ==========================================================
 async function handleSelectServerForPurchase(bot, query) {
-    const servers = serverService.getAllAvailableServers();
+    const servers = serverService.getAllAvailableServers().filter(s => Object.values(s.protocols).some(p => p.enabled));
     if (servers.length === 0) {
         return bot.answerCallbackQuery(query.id, { text: 'Saat ini belum ada server yang tersedia.', show_alert: true });
     }
@@ -334,6 +343,163 @@ async function handleConfirmRenew(bot, query) {
     }
 }
 
+// ==========================================================
+// ALUR TRIAL AKUN
+// ==========================================================
+async function handleSelectServerForTrial(bot, query) {
+    const servers = serverService.getAllAvailableServers().filter(s => Object.values(s.protocols).some(p => p.enabled));
+    if (servers.length === 0) {
+        return bot.answerCallbackQuery(query.id, { text: 'Saat ini belum ada server yang tersedia untuk trial.', show_alert: true });
+    }
+
+    const keyboard = servers.map(server => ([{
+        text: `📍 ${server.name}`,
+        callback_data: `vpn_trial_select_protocol_${server.id}`
+    }]));
+    keyboard.push([backButton('⬅️ Kembali', 'menu_vpn')]);
+
+    const text = `*🎁 Trial Akun VPN (Langkah 1 dari 2)*\n${prettyLine()}\nSilakan pilih server yang ingin Anda coba:`;
+    await bot.editMessageText(text, {
+        chat_id: query.message.chat.id, message_id: query.message.message_id,
+        parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
+    });
+}
+
+async function handleSelectProtocolForTrial(bot, query) {
+    const userId = query.from.id.toString();
+    const serverId = query.data.split('_').pop();
+    const server = serverService.getServerDetails(serverId);
+    if (!server) return bot.answerCallbackQuery(query.id, { text: 'Server tidak ditemukan.', show_alert: true });
+
+    const availableProtocols = Object.entries(server.protocols)
+        .filter(([, details]) => details.enabled);
+    if (availableProtocols.length === 0) {
+        return bot.answerCallbackQuery(query.id, { text: 'Server ini belum memiliki protokol aktif.', show_alert: true });
+    }
+
+    const user = userService.getUser(userId);
+    const trialSettings = userService.getTrialSettings();
+    const userCooldownHours = trialSettings.cooldown_hours[user.role] || trialSettings.cooldown_hours.user;
+
+    const keyboard = [];
+    const now = new Date();
+
+    for (const [protoId] of availableProtocols) {
+        let buttonText = `🛡️ ${protoId.toUpperCase()}`;
+        let callback_data = `vpn_trial_claim_${serverId}_${protoId}`;
+        
+        if (userCooldownHours !== -1) {
+            const lastTrial = await sqliteService.get(
+                'SELECT timestamp FROM trial_logs WHERE telegram_id = ? AND server_id = ? AND protocol_id = ?',
+                [userId, serverId, protoId]
+            );
+
+            if (lastTrial) {
+                const lastTrialTime = new Date(lastTrial.timestamp);
+                const cooldownEndTime = new Date(lastTrialTime.getTime() + userCooldownHours * 60 * 60 * 1000);
+
+                if (now < cooldownEndTime) {
+                    const timeLeft = Math.ceil((cooldownEndTime - now) / (1000 * 60 * 60));
+                    buttonText = `⏳ ${protoId.toUpperCase()} (Tunggu ${timeLeft} jam)`;
+                    callback_data = 'noop';
+                }
+            }
+        }
+        keyboard.push([{ text: buttonText, callback_data }]);
+    }
+
+    keyboard.push([backButton('⬅️ Kembali', 'vpn_trial_select_server')]);
+    const text = `*Pilih Protokol Trial di ${server.name} (Langkah 2 dari 2)*\n${prettyLine()}\nPilih protokol yang ingin Anda coba.`;
+    await bot.editMessageText(text, {
+        chat_id: query.message.chat.id, message_id: query.message.message_id,
+        parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
+    });
+}
+
+async function processTrialClaim(bot, query) {
+    const userId = query.from.id.toString();
+    const [,,, serverId, protoId] = query.data.split('_');
+    const chatId = query.message.chat.id;
+    const messageId = query.message.message_id;
+
+    const user = userService.getUser(userId);
+    const trialSettings = userService.getTrialSettings();
+    const userCooldownHours = trialSettings.cooldown_hours[user.role] || trialSettings.cooldown_hours.user;
+
+    if (userCooldownHours !== -1) {
+        const lastTrial = await sqliteService.get('SELECT * FROM trial_logs WHERE telegram_id = ? AND server_id = ? AND protocol_id = ?', [userId, serverId, protoId]);
+        if (lastTrial) {
+            const now = new Date();
+            const lastTrialTime = new Date(lastTrial.timestamp);
+            const cooldownEndTime = new Date(lastTrialTime.getTime() + userCooldownHours * 60 * 60 * 1000);
+            if (now < cooldownEndTime) {
+                return bot.answerCallbackQuery(query.id, { text: `Anda baru saja mengklaim trial untuk protokol ini.`, show_alert: true });
+            }
+        }
+    }
+    
+    await bot.editMessageText('⏳ Sedang menyiapkan akun trial Anda, mohon tunggu...', {
+        chat_id: chatId, message_id: messageId
+    });
+
+    try {
+        const server = serverService.getServerDetails(serverId);
+        if (!server || !server.protocols[protoId]?.enabled) {
+            throw new Error('Server atau protokol ini tidak lagi tersedia.');
+        }
+
+        const username = `trial-${crypto.randomBytes(4).toString('hex')}`;
+        const password = crypto.randomBytes(6).toString('hex');
+        const duration = 1; 
+        const trialDurationMinutes = trialSettings.duration_minutes;
+
+        const result = await vpnApiService.createAccount(server, protoId, username, password, duration);
+
+        const now = new Date();
+        const expiryDate = new Date(now.getTime() + trialDurationMinutes * 60 * 1000);
+
+        await sqliteService.run(
+            'INSERT INTO active_trials (telegram_id, server_name, protocol, username, expiry_timestamp) VALUES (?, ?, ?, ?, ?)',
+            [userId, server.name, protoId, username, expiryDate.toISOString()]
+        );
+        
+        await sqliteService.run(
+            'INSERT OR REPLACE INTO trial_logs (telegram_id, server_id, protocol_id, timestamp) VALUES (?, ?, ?, ?)',
+            [userId, serverId, protoId, now.toISOString()]
+        );
+
+        await bot.editMessageText(result.details, {
+            chat_id: chatId,
+            message_id: messageId,
+            parse_mode: 'HTML',
+        });
+
+        const cooldownText = userCooldownHours === -1 ? 'Unlimited' : `${userCooldownHours} Jam`;
+        const infoText = `*Informasi Trial*\n` +
+                         `*• Kuota Trial:* 1x\n` +
+                         `*• Cooldown:* ${cooldownText}\n\n` +
+                         `Akun ini akan otomatis dihapus setelah *${trialDurationMinutes} menit*.`;
+
+        await bot.sendMessage(chatId, infoText, {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [[{ text: '✅ Selesai', callback_data: 'delete_and_show_menu' }]]
+            }
+        });
+
+        writeLog(`[VpnHandler] Akun trial ${protoId} ${username} berhasil dibuat untuk User ID ${userId}`);
+
+    } catch (error) {
+        writeLog(`[VpnHandler] Gagal membuat akun trial untuk ${userId}: ${error.message}`);
+        await bot.editMessageText(`❌ *Gagal Membuat Akun Trial*\n\n${error.message}`, {
+            chat_id: chatId,
+            message_id: messageId,
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[backButton('Kembali', 'menu_vpn')]] }
+        });
+    }
+}
+
 
 module.exports = { 
     handleVpnMenu, 
@@ -344,5 +510,8 @@ module.exports = {
     handleVpnUserInput, 
     handleSelectAccountForRenew, 
     handleConfirmRenew, 
+    handleSelectServerForTrial,
+    handleSelectProtocolForTrial,
+    processTrialClaim,
     pendingVpnAction 
 };
