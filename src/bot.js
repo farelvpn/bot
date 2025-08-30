@@ -8,6 +8,8 @@ const { writeLog } = require('./utils/logger');
 // Servis
 const userService = require('./services/userService');
 const sqliteService = require('./services/sqliteService');
+const vpnApiService = require('./services/vpnApiService'); 
+const serverService = require('./services/serverService'); 
 
 // Handlers
 const coreHandler = require('./handlers/coreHandler');
@@ -65,22 +67,61 @@ async function checkExpiredAccounts() {
     }
 }
 
-// Menjalankan pengecekan setiap jam
+
+async function checkExpiredTrials() {
+    const now = new Date().toISOString();
+    try {
+        const expiredTrials = await sqliteService.all('SELECT * FROM active_trials WHERE expiry_timestamp <= ?', [now]);
+        if (expiredTrials.length > 0) {
+            writeLog(`[TrialScheduler] Ditemukan ${expiredTrials.length} akun trial kedaluwarsa.`);
+        }
+        for (const trial of expiredTrials) {
+            const server = serverService.getAllAvailableServers().find(s => s.name === trial.server_name);
+            if (server) {
+                try {
+                    await vpnApiService.deleteAccount(server, trial.protocol, trial.username);
+                    await sqliteService.run('DELETE FROM active_trials WHERE id = ?', [trial.id]);
+                    writeLog(`[TrialScheduler] Berhasil menghapus akun trial ${trial.username} dari server ${server.name}.`);
+                    
+                    const message = `🔔 *Trial Berakhir*\n\nAkun trial Anda (\`${trial.username}\` di server *${trial.server_name}*) telah kedaluwarsa dan berhasil dihapus.`;
+                    bot.sendMessage(trial.telegram_id, message, { parse_mode: 'Markdown' }).catch(e => {
+                        writeLog(`[TrialScheduler] Gagal mengirim notifikasi expired ke ${trial.telegram_id}: ${e.message}`);
+                    });
+
+                } catch (deleteError) {
+                    writeLog(`[TrialScheduler] FATAL: Gagal menghapus akun trial ${trial.username}: ${deleteError.message}`);
+                    await sqliteService.run('DELETE FROM active_trials WHERE id = ?', [trial.id]);
+                }
+            } else {
+                 writeLog(`[TrialScheduler] Server "${trial.server_name}" untuk akun trial ${trial.username} tidak ditemukan. Menghapus dari DB.`);
+                 await sqliteService.run('DELETE FROM active_trials WHERE id = ?', [trial.id]);
+            }
+        }
+    } catch (error) {
+        writeLog(`[TrialScheduler] ERROR: ${error.message}`);
+    }
+}
+
 setInterval(checkExpiredAccounts, 1000 * 60 * 60);
-// Menjalankan pengecekan saat bot pertama kali hidup
 checkExpiredAccounts();
 
+if (config.trial.enabled) {
+    setInterval(checkExpiredTrials, 1000 * 60);
+    checkExpiredTrials();
+    writeLog('[Init] Fitur Trial diaktifkan.');
+} else {
+    writeLog('[Init] Fitur Trial dinonaktifkan.');
+}
+
+
 bot.on('message', async (msg) => {
-    // Abaikan pesan yang bukan dari private chat atau tidak berisi teks
     if (msg.chat.type !== 'private' || !msg.text) return;
 
     const userId = msg.from.id.toString();
     const username = msg.from.username || `user${userId}`;
     
-    // Pastikan user terdaftar di database
     userService.ensureUser(userId, username);
   
-    // Cek apakah ada aksi yang sedang menunggu input dari pengguna
     if (topupHandler.pendingTopupInput[userId]) {
         return topupHandler.processTopupAmount(bot, msg);
     }
@@ -91,7 +132,6 @@ bot.on('message', async (msg) => {
         return adminHandler.handleAdminInput(bot, msg);
     }
 
-    // Menangani perintah
     if (msg.text.startsWith('/start')) {
         return coreHandler.handleStartCommand(bot, msg);
     }
@@ -99,7 +139,6 @@ bot.on('message', async (msg) => {
         return adminHandler.handleAdminPanelMain(bot, msg);
     }
   
-    // Jika tidak ada perintah atau aksi pending, tampilkan menu utama
     await coreHandler.sendMainMenu(bot, userId, msg.chat.id, null);
 });
 
@@ -108,7 +147,6 @@ bot.on('callback_query', (query) => {
     const username = query.from.username || `user${userId}`;
     userService.ensureUser(userId, username);
     
-    // Rute semua callback ke callbackRouter
     callbackRouter.routeCallbackQuery(bot, query);
 });
 
