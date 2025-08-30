@@ -9,7 +9,17 @@ const DB_PATH = config.paths.db;
 function loadDB() {
   const defaultDB = {
     users: {},
-    settings: { topup: { minAmount: 10000, maxAmount: 1000000 } },
+    settings: { 
+      topup: { minAmount: 10000, maxAmount: 1000000 },
+      // [PEMBARUAN] Menambahkan durasi trial default
+      trial: { 
+        duration_minutes: 60, // Durasi default 60 menit
+        cooldown_hours: {
+          user: 24,
+          reseller: 24
+        } 
+      }
+    },
   };
 
   if (!fs.existsSync(DB_PATH)) return defaultDB;
@@ -17,8 +27,15 @@ function loadDB() {
   try {
     const fileContent = fs.readFileSync(DB_PATH, 'utf-8');
     if (!fileContent.trim()) return defaultDB;
+    
     const data = JSON.parse(fileContent);
-    return { ...defaultDB, ...data, users: data.users || {}, settings: data.settings || defaultDB.settings };
+    // Pastikan settings dan trial settings ada
+    data.settings = data.settings || defaultDB.settings;
+    data.settings.trial = data.settings.trial || defaultDB.settings.trial;
+    data.settings.trial.duration_minutes = data.settings.trial.duration_minutes || defaultDB.settings.trial.duration_minutes;
+    data.settings.trial.cooldown_hours = data.settings.trial.cooldown_hours || defaultDB.settings.trial.cooldown_hours;
+
+    return { ...defaultDB, ...data };
   } catch (error) {
     writeLog(`[UserService] Error membaca database.json: ${error.message}. Menggunakan DB default.`);
     return defaultDB;
@@ -98,8 +115,40 @@ function getTopupSettings() {
     return loadDB().settings?.topup || { minAmount: 10000, maxAmount: 1000000 };
 }
 
+function getTrialSettings() {
+    const defaults = { duration_minutes: 60, cooldown_hours: { user: 24, reseller: 24 } };
+    return loadDB().settings?.trial || defaults;
+}
+
+// [PEMBARUAN] Fungsi ini sekarang bisa mengubah cooldown atau durasi
+function updateTrialSettings(type, value, role = null) {
+    const db = loadDB();
+    if (type === 'cooldown') {
+        if (role !== 'user' && role !== 'reseller') return false;
+        db.settings.trial.cooldown_hours[role] = value;
+        writeLog(`[UserService] Pengaturan cooldown trial untuk role ${role} diubah menjadi ${value} jam.`);
+    } else if (type === 'duration') {
+        db.settings.trial.duration_minutes = value;
+        writeLog(`[UserService] Pengaturan durasi trial diubah menjadi ${value} menit.`);
+    } else {
+        return false;
+    }
+    saveDB(db);
+    return true;
+}
+
+
 function getAllUsers() {
     return loadDB().users;
 }
 
-module.exports = { ensureUser, updateUserBalance, getUser, updateUserRole, getTopupSettings, getAllUsers };
+module.exports = { 
+    ensureUser, 
+    updateUserBalance, 
+    getUser, 
+    updateUserRole, 
+    getTopupSettings, 
+    getAllUsers,
+    getTrialSettings,
+    updateTrialSettings
+};
