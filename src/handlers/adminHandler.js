@@ -20,9 +20,7 @@ function isAdmin(userId) {
   return userId === config.adminId || (user && user.role === 'admin');
 }
 
-// ==========================================================
-// HANDLER INPUT UTAMA
-// ==========================================================
+// ... Sisa kode tidak berubah ...
 async function handleAdminInput(bot, msg) {
     const adminId = msg.from.id.toString();
     const state = pendingAdminAction[adminId];
@@ -46,23 +44,29 @@ async function handleAdminInput(bot, msg) {
         case 'edit_server_name':
         case 'edit_server_token':
             return processServerDetailChange(bot, msg);
+        case 'set_trial_cooldown':
+            return processTrialCooldownChange(bot, msg);
+        case 'set_trial_duration':
+            return processTrialDurationChange(bot, msg);
         default:
             writeLog(`[AdminHandler] Aksi pending tidak diketahui: ${state.action}`);
     }
 }
 
-// ==========================================================
-// NAVIGASI PANEL ADMIN UTAMA
-// ==========================================================
 async function handleAdminPanelMain(bot, queryOrMsg) {
     const userId = queryOrMsg.from.id.toString();
     if (!isAdmin(userId)) return;
 
     const text = `👑 *Panel Admin Utama*\n${prettyLine()}\nPilih tindakan yang ingin Anda lakukan:`;
     const keyboard = [
-        [{ text: '👤 Kelola Pengguna', callback_data: 'admin_manage_users' }],
-        [{ text: '🗄️ Kelola Server VPN', callback_data: 'admin_manage_servers' }],
-        [{ text: '📢 Broadcast Pesan', callback_data: 'admin_broadcast_prompt' }],
+        [
+            { text: '👤 Kelola Pengguna', callback_data: 'admin_manage_users' },
+            { text: '🗄️ Kelola Server', callback_data: 'admin_manage_servers' }
+        ],
+        [
+            { text: '🎁 Pengaturan Trial', callback_data: 'admin_trial_settings' },
+            { text: '📢 Broadcast Pesan', callback_data: 'admin_broadcast_prompt' }
+        ],
         [backButton('⬅️ Kembali ke Menu', 'back_menu')]
     ];
 
@@ -87,10 +91,166 @@ async function handleAdminPanelMain(bot, queryOrMsg) {
     }
 }
 
+async function handleTrialSettingsMenu(bot, query) {
+    if (!isAdmin(query.from.id.toString())) return;
 
-// ==========================================================
-// KELOLA SERVER
-// ==========================================================
+    const trialSettings = userService.getTrialSettings();
+    const duration = trialSettings.duration_minutes;
+    const userCooldown = trialSettings.cooldown_hours.user === -1 ? 'Unlimited' : `${trialSettings.cooldown_hours.user} Jam`;
+    const resellerCooldown = trialSettings.cooldown_hours.reseller === -1 ? 'Unlimited' : `${trialSettings.cooldown_hours.reseller} Jam`;
+
+    const text = `*🎁 Pengaturan Trial*\n${prettyLine()}\n` +
+                 `Atur durasi dan batas waktu tunggu (*cooldown*) untuk fitur trial gratis.\n\n` +
+                 `*Pengaturan Saat Ini:*\n` +
+                 `*• Durasi Aktif:* ${duration} Menit\n` +
+                 `*• Cooldown User:* ${userCooldown}\n` +
+                 `*• Cooldown Reseller:* ${resellerCooldown}`;
+    
+    const keyboard = [
+        [
+            { text: 'Ubah Durasi', callback_data: 'admin_set_trial_duration' },
+            { text: 'Ubah Cooldown User', callback_data: 'admin_set_trial_cooldown_user' }
+        ],
+        [
+            { text: 'Ubah Cooldown Reseller', callback_data: 'admin_set_trial_cooldown_reseller' }
+        ],
+        [backButton('⬅️ Kembali', 'admin_panel_main')]
+    ];
+
+    await bot.editMessageText(text, {
+        chat_id: query.message.chat.id,
+        message_id: query.message.message_id,
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: keyboard }
+    });
+}
+
+async function promptTrialDurationChange(bot, query) {
+    const adminId = query.from.id.toString();
+    if (!isAdmin(adminId)) return;
+
+    pendingAdminAction[adminId] = {
+        action: 'set_trial_duration',
+        messageId: query.message.message_id,
+        chatId: query.message.chat.id
+    };
+
+    const text = `*Ubah Durasi Trial*\n\n` +
+                 `Kirimkan durasi masa aktif trial dalam **menit**.\n\n` +
+                 `*Contoh:*\n` +
+                 `• \`60\` untuk 60 menit\n` +
+                 `• \`120\` untuk 2 jam`;
+
+    await bot.editMessageText(text, {
+        chat_id: query.message.chat.id,
+        message_id: query.message.message_id,
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[backButton('Batal', 'admin_trial_settings')]] }
+    });
+}
+
+async function processTrialDurationChange(bot, msg) {
+    const adminId = msg.from.id.toString();
+    const state = pendingAdminAction[adminId];
+    if (!state || state.action !== 'set_trial_duration') return;
+
+    const { chatId, messageId } = state;
+    const input = msg.text.trim();
+    
+    await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+    delete pendingAdminAction[adminId];
+
+    const minutes = parseInt(input, 10);
+    if (isNaN(minutes) || minutes <= 0) {
+        const err = await bot.sendMessage(chatId, 'Input tidak valid. Harap masukkan angka positif.');
+        setTimeout(() => bot.deleteMessage(chatId, err.message_id).catch(()=>{}), 5000);
+        const refreshedQuery = {
+            from: { id: adminId },
+            data: 'admin_trial_settings',
+            message: { chat: { id: chatId }, message_id: messageId }
+        };
+        await handleTrialSettingsMenu(bot, refreshedQuery);
+        return;
+    }
+
+    userService.updateTrialSettings('duration', minutes);
+
+    const refreshedQuery = {
+        from: { id: adminId },
+        data: 'admin_trial_settings',
+        message: { chat: { id: chatId }, message_id: messageId }
+    };
+    await handleTrialSettingsMenu(bot, refreshedQuery);
+}
+
+async function promptTrialCooldownChange(bot, query) {
+    const adminId = query.from.id.toString();
+    if (!isAdmin(adminId)) return;
+
+    const role = query.data.includes('_user') ? 'user' : 'reseller';
+    const roleText = role.charAt(0).toUpperCase() + role.slice(1);
+    
+    pendingAdminAction[adminId] = {
+        action: 'set_trial_cooldown',
+        role: role,
+        messageId: query.message.message_id,
+        chatId: query.message.chat.id
+    };
+
+    const text = `*Ubah Cooldown Trial untuk ${roleText}*\n\n` +
+                 `Kirimkan durasi cooldown baru dalam **jam**.\n\n` +
+                 `*Contoh:*\n` +
+                 `• \`24\` untuk 24 jam\n` +
+                 `• \`1\` untuk 1 jam\n` +
+                 `• \`unlimited\` atau \`unli\` untuk tanpa batas.`;
+
+    await bot.editMessageText(text, {
+        chat_id: query.message.chat.id,
+        message_id: query.message.message_id,
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[backButton('Batal', 'admin_trial_settings')]] }
+    });
+}
+
+async function processTrialCooldownChange(bot, msg) {
+    const adminId = msg.from.id.toString();
+    const state = pendingAdminAction[adminId];
+    if (!state || state.action !== 'set_trial_cooldown') return;
+
+    const { role, chatId, messageId } = state;
+    const input = msg.text.trim().toLowerCase();
+    
+    await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+    delete pendingAdminAction[adminId];
+
+    let hours;
+    if (['unli', 'unlimited', 'no limit'].includes(input)) {
+        hours = -1;
+    } else {
+        hours = parseInt(input, 10);
+        if (isNaN(hours) || hours < 0) {
+            const err = await bot.sendMessage(chatId, 'Input tidak valid. Harap masukkan angka atau "unlimited".');
+            setTimeout(() => bot.deleteMessage(chatId, err.message_id).catch(()=>{}), 5000);
+            const refreshedQuery = {
+                from: { id: adminId },
+                data: 'admin_trial_settings',
+                message: { chat: { id: chatId }, message_id: messageId }
+            };
+            await handleTrialSettingsMenu(bot, refreshedQuery);
+            return;
+        }
+    }
+
+    userService.updateTrialSettings('cooldown', hours, role);
+
+    const refreshedQuery = {
+        from: { id: adminId },
+        data: 'admin_trial_settings',
+        message: { chat: { id: chatId }, message_id: messageId }
+    };
+    await handleTrialSettingsMenu(bot, refreshedQuery);
+}
+
 async function handleManageServersMenu(bot, query) {
     if (!isAdmin(query.from.id.toString())) return;
     const text = `*🗄️ Kelola Server VPN*\n${prettyLine()}\nPilih aksi yang ingin Anda lakukan.`;
@@ -133,10 +293,6 @@ async function handleSelectServer(bot, query, action) {
     });
 }
 
-
-// ==========================================================
-// ALUR TAMBAH SERVER BARU
-// ==========================================================
 async function startAddServerFlow(bot, query) {
     const adminId = query.from.id.toString();
     if (!isAdmin(adminId)) return;
@@ -225,10 +381,6 @@ async function processServerToken(bot, msg) {
     });
 }
 
-
-// ==========================================================
-// ALUR EDIT SERVER (UI DISEMPURNAKAN)
-// ==========================================================
 async function handleEditServerDetails(bot, query) {
     if (!isAdmin(query.from.id.toString())) return;
     const serverId = query.data.split('_').pop();
@@ -319,10 +471,18 @@ async function handleManageProtocols(bot, query) {
 
     keyboard.push([backButton('⬅️ Kembali', `admin_edit_server_details_${serverId}`)]);
 
-    await bot.editMessageText(text, {
-        chat_id: query.message.chat.id, message_id: query.message.message_id,
-        parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
-    });
+    try {
+        await bot.editMessageText(text, {
+            chat_id: query.message.chat.id,
+            message_id: query.message.message_id,
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: keyboard }
+        });
+    } catch (error) {
+        if (!error.message.includes('message is not modified')) {
+            writeLog(`[AdminHandler] Gagal edit pesan di handleManageProtocols: ${error.message}`);
+        }
+    }
 }
 
 
@@ -447,9 +607,12 @@ async function processNewPriceInput(bot, msg) {
 async function toggleProtocolStatus(bot, query) {
     const adminId = query.from.id.toString();
     if (!isAdmin(adminId)) return;
+
     const [,,, serverId, protoId] = query.data.split('_');
     const server = serverService.getServerDetails(serverId);
-    if (!server) return;
+    if (!server) {
+        return bot.answerCallbackQuery(query.id, { text: 'Server tidak ditemukan.' });
+    }
 
     if (!server.protocols[protoId]) {
         server.protocols[protoId] = { enabled: false, prices: { user: 0, reseller: 0 } };
@@ -458,16 +621,22 @@ async function toggleProtocolStatus(bot, query) {
     serverService.saveServerDetails(serverId, server);
     
     const statusText = server.protocols[protoId].enabled ? 'diaktifkan' : 'dinonaktifkan';
-    await bot.answerCallbackQuery(query.id, { text: `Protokol ${protoId.toUpperCase()} telah ${statusText}` });
+    
+    const refreshedQuery = {
+        from: query.from,
+        message: query.message,
+        data: `admin_manage_protocols_${serverId}`
+    };
 
-    const refreshedQuery = { ...query };
-    await handleManageProtocols(bot, refreshedQuery);
+    try {
+        await handleManageProtocols(bot, refreshedQuery);
+    } catch (error) {
+        writeLog(`[AdminHandler] Gagal me-refresh UI di toggleProtocolStatus: ${error.message}`);
+    } finally {
+        await bot.answerCallbackQuery(query.id, { text: `Protokol ${protoId.toUpperCase()} telah ${statusText}` });
+    }
 }
 
-
-// ==========================================================
-// KELOLA PENGGUNA (DIROMBAK TOTAL)
-// ==========================================================
 async function handleManageUsers(bot, query) {
     if (!isAdmin(query.from.id.toString())) return;
 
@@ -679,5 +848,8 @@ module.exports = {
   processRoleChange,
   handleBroadcastPrompt,
   handleBroadcastInput,
+  handleTrialSettingsMenu,
+  promptTrialCooldownChange,
+  promptTrialDurationChange,
   pendingAdminAction
 };
