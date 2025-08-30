@@ -42,8 +42,31 @@ function initializeTables() {
         created_at TEXT NOT NULL
     );
   `;
+  // [PERBAIKAN] Skema tabel yang benar untuk cooldown per protokol
+  const createTrialLogsTable = `
+    CREATE TABLE IF NOT EXISTS trial_logs (
+        telegram_id TEXT NOT NULL,
+        server_id TEXT NOT NULL,
+        protocol_id TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        PRIMARY KEY (telegram_id, server_id, protocol_id)
+    );
+  `;
+  const createActiveTrialsTable = `
+    CREATE TABLE IF NOT EXISTS active_trials (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        telegram_id TEXT NOT NULL,
+        server_name TEXT NOT NULL,
+        protocol TEXT NOT NULL,
+        username TEXT NOT NULL UNIQUE,
+        expiry_timestamp TEXT NOT NULL
+    );
+  `;
+
   db.exec(createVpnTransactionsTable, handleDbError);
   db.exec(createTopupLogsTable, handleDbError);
+  db.exec(createTrialLogsTable, handleDbError);
+  db.exec(createActiveTrialsTable, handleDbError);
 }
 
 function handleDbError(err) {
