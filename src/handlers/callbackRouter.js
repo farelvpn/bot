@@ -6,7 +6,6 @@ const topupHandler = require('./topupHandler');
 const adminHandler = require('./adminHandler');
 const vpnHandler = require('./vpnHandler');
 const otherHandler = require('./otherHandler');
-// trialHandler.js tidak lagi digunakan secara langsung di sini
 
 async function routeCallbackQuery(bot, query) {
   const data = query.data;
@@ -16,7 +15,7 @@ async function routeCallbackQuery(bot, query) {
 
   writeLog(`[CallbackRouter] Menerima callback: "${data}" dari User ID: ${userId}`);
   
-  if (data === 'noop') { // Callback untuk tombol non-aktif
+  if (data === 'noop') { 
       return bot.answerCallbackQuery(query.id);
   }
 
@@ -29,16 +28,18 @@ async function routeCallbackQuery(bot, query) {
       if (topupHandler.pendingTopupInput[userId]) delete topupHandler.pendingTopupInput[userId];
       if (adminHandler.pendingAdminAction[userId]) delete adminHandler.pendingAdminAction[userId];
       if (vpnHandler.pendingVpnAction[userId]) delete vpnHandler.pendingVpnAction[userId];
-      writeLog(`[CallbackRouter] Semua status pending untuk User ID ${userId} telah dibatalkan.`);
       return coreHandler.sendMainMenu(bot, userId, chatId, messageId);
   }
 
-  // Rute Utama
+  // Rute Topup & Pembayaran
   if (data === 'topup_menu') return topupHandler.handleTopupMenu(bot, query);
+  // [BARU] Rute Pemilihan Pembayaran
+  if (data.startsWith('pay_select_')) return topupHandler.handlePaymentSelection(bot, query);
+
   if (data === 'menu_vpn') return vpnHandler.handleVpnMenu(bot, query);
   if (data === 'menu_lain') return otherHandler.handleOtherMenu(bot, query);
 
-  // [PEMBARUAN] Rute Trial sekarang menjadi bagian dari Rute VPN
+  // Rute VPN Trial
   if (data.startsWith('vpn_trial_')) {
       if (data === 'vpn_trial_select_server') return vpnHandler.handleSelectServerForTrial(bot, query);
       if (data.startsWith('vpn_trial_select_protocol_')) return vpnHandler.handleSelectProtocolForTrial(bot, query);
@@ -61,6 +62,10 @@ async function routeCallbackQuery(bot, query) {
   if (data.startsWith('admin_')) {
       if (data === 'admin_panel_main') return adminHandler.handleAdminPanelMain(bot, query);
       
+      // [BARU] Rute Pengaturan Pembayaran Admin
+      if (data === 'admin_payment_settings') return adminHandler.handlePaymentSettings(bot, query);
+      if (data.startsWith('admin_toggle_pay_')) return adminHandler.togglePaymentStatus(bot, query);
+
       // Rute Kelola Server
       if (data === 'admin_manage_servers') return adminHandler.handleManageServersMenu(bot, query);
       if (data === 'admin_add_server_prompt') return adminHandler.startAddServerFlow(bot, query);

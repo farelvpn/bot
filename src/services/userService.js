@@ -11,9 +11,13 @@ function loadDB() {
     users: {},
     settings: { 
       topup: { minAmount: 10000, maxAmount: 1000000 },
-      // [PEMBARUAN] Menambahkan durasi trial default
+      // [BARU] Pengaturan default metode pembayaran
+      payment_methods: {
+          gateway_utama: true, 
+          saweria: false       
+      },
       trial: { 
-        duration_minutes: 60, // Durasi default 60 menit
+        duration_minutes: 60, 
         cooldown_hours: {
           user: 24,
           reseller: 24
@@ -29,11 +33,16 @@ function loadDB() {
     if (!fileContent.trim()) return defaultDB;
     
     const data = JSON.parse(fileContent);
-    // Pastikan settings dan trial settings ada
+    
+    // Pastikan struktur data lengkap (Backward Compatibility)
     data.settings = data.settings || defaultDB.settings;
     data.settings.trial = data.settings.trial || defaultDB.settings.trial;
-    data.settings.trial.duration_minutes = data.settings.trial.duration_minutes || defaultDB.settings.trial.duration_minutes;
     data.settings.trial.cooldown_hours = data.settings.trial.cooldown_hours || defaultDB.settings.trial.cooldown_hours;
+    
+    // [BARU] Pastikan payment_methods ada
+    if (!data.settings.payment_methods) {
+        data.settings.payment_methods = defaultDB.settings.payment_methods;
+    }
 
     return { ...defaultDB, ...data };
   } catch (error) {
@@ -52,7 +61,7 @@ function ensureUser(userId, username) {
     db.users[userId] = {
       username: username || `user${userId}`,
       balance: 0,
-      role: 'user', // Peran default adalah 'user'
+      role: 'user',
       registered_at: new Date().toISOString(),
       topup_history: [],
     };
@@ -60,7 +69,6 @@ function ensureUser(userId, username) {
     writeLog(`[UserService] Pengguna baru terdaftar: ID ${userId}, Username @${username}, Role: user`);
     return true;
   }
-  // Memastikan pengguna lama memiliki properti role
   if (!db.users[userId].role) {
     db.users[userId].role = 'user';
     saveDB(db);
@@ -120,7 +128,6 @@ function getTrialSettings() {
     return loadDB().settings?.trial || defaults;
 }
 
-// [PEMBARUAN] Fungsi ini sekarang bisa mengubah cooldown atau durasi
 function updateTrialSettings(type, value, role = null) {
     const db = loadDB();
     if (type === 'cooldown') {
@@ -137,9 +144,25 @@ function updateTrialSettings(type, value, role = null) {
     return true;
 }
 
-
 function getAllUsers() {
     return loadDB().users;
+}
+
+// [BARU] Mendapatkan status metode pembayaran
+function getPaymentMethods() {
+    const db = loadDB();
+    return db.settings.payment_methods || { gateway_utama: true, saweria: false };
+}
+
+// [BARU] Mengubah status metode pembayaran
+function togglePaymentMethod(method, status) {
+    const db = loadDB();
+    if (!db.settings.payment_methods) db.settings.payment_methods = { gateway_utama: true, saweria: false };
+    
+    db.settings.payment_methods[method] = status;
+    saveDB(db);
+    writeLog(`[UserService] Metode pembayaran ${method} diubah menjadi ${status}`);
+    return true;
 }
 
 module.exports = { 
@@ -150,5 +173,7 @@ module.exports = {
     getTopupSettings, 
     getAllUsers,
     getTrialSettings,
-    updateTrialSettings
+    updateTrialSettings,
+    getPaymentMethods,      // Export fungsi baru
+    togglePaymentMethod     // Export fungsi baru
 };

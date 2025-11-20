@@ -1,0 +1,28 @@
+{
+  "users": {
+    "6389176425": {
+      "username": "Rerechan02",
+      "balance": 0,
+      "role": "user",
+      "registered_at": "2025-11-20T10:26:31.990Z",
+      "topup_history": []
+    }
+  },
+  "settings": {
+    "topup": {
+      "minAmount": 10000,
+      "maxAmount": 1000000
+    },
+    "payment_methods": {
+      "gateway_utama": true,
+      "saweria": true
+    },
+    "trial": {
+      "duration_minutes": 60,
+      "cooldown_hours": {
+        "user": 24,
+        "reseller": 24
+      }
+    }
+  }
+}

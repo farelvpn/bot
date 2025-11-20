@@ -12,6 +12,10 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "node-telegram-bot-api": "^0.66.0",
+    "puppeteer": "^24.30.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "qris-saweria": "^1.0.2",
     "sqlite3": "^5.1.7"
   }
 }

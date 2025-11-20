@@ -20,7 +20,6 @@ function isAdmin(userId) {
   return userId === config.adminId || (user && user.role === 'admin');
 }
 
-// ... Sisa kode tidak berubah ...
 async function handleAdminInput(bot, msg) {
     const adminId = msg.from.id.toString();
     const state = pendingAdminAction[adminId];
@@ -67,6 +66,10 @@ async function handleAdminPanelMain(bot, queryOrMsg) {
             { text: '🎁 Pengaturan Trial', callback_data: 'admin_trial_settings' },
             { text: '📢 Broadcast Pesan', callback_data: 'admin_broadcast_prompt' }
         ],
+        // [BARU] Tombol Pengaturan Pembayaran
+        [
+            { text: '⚙️ Metode Pembayaran', callback_data: 'admin_payment_settings' }
+        ],
         [backButton('⬅️ Kembali ke Menu', 'back_menu')]
     ];
 
@@ -89,6 +92,47 @@ async function handleAdminPanelMain(bot, queryOrMsg) {
         await bot.sendMessage(chatId, text, options)
             .catch(err => writeLog(`[AdminHandler] Error send di handleAdminPanelMain: ${err.message}`));
     }
+}
+
+// [BARU] Handler Menu Pengaturan Pembayaran
+async function handlePaymentSettings(bot, query) {
+    if (!isAdmin(query.from.id.toString())) return;
+    
+    const methods = userService.getPaymentMethods();
+    const statusGateway = methods.gateway_utama ? '✅ Aktif' : '❌ Mati';
+    const statusSaweria = methods.saweria ? '✅ Aktif' : '❌ Mati';
+
+    const text = `⚙️ *Pengaturan Pembayaran*\n${prettyLine()}\n` +
+                 `Atur metode pembayaran yang tersedia untuk user.\n\n` +
+                 `• Gateway Utama: *${statusGateway}*\n` +
+                 `• Saweria QRIS: *${statusSaweria}*`;
+
+    const keyboard = [
+        [{ text: '🔄 Toggle Gateway Utama', callback_data: 'admin_toggle_pay_gateway_utama' }],
+        [{ text: '🔄 Toggle Saweria', callback_data: 'admin_toggle_pay_saweria' }],
+        [backButton('⬅️ Kembali', 'admin_panel_main')]
+    ];
+
+    await bot.editMessageText(text, {
+        chat_id: query.message.chat.id,
+        message_id: query.message.message_id,
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: keyboard }
+    });
+}
+
+// [BARU] Handler Toggle Status Pembayaran
+async function togglePaymentStatus(bot, query) {
+    if (!isAdmin(query.from.id.toString())) return;
+    
+    const method = query.data.includes('gateway_utama') ? 'gateway_utama' : 'saweria';
+    const currentMethods = userService.getPaymentMethods();
+    const newStatus = !currentMethods[method];
+    
+    userService.togglePaymentMethod(method, newStatus);
+    
+    // Refresh tampilan menu
+    return handlePaymentSettings(bot, query);
 }
 
 async function handleTrialSettingsMenu(bot, query) {
@@ -833,6 +877,8 @@ module.exports = {
   isAdmin,
   handleAdminInput,
   handleAdminPanelMain,
+  handlePaymentSettings,
+  togglePaymentStatus,
   handleManageServersMenu,
   handleSelectServer,
   startAddServerFlow,

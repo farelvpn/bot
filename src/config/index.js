@@ -13,6 +13,11 @@ module.exports = {
     apiToken: process.env.PAYMENT_GATEWAY_API_TOKEN,
   },
 
+  // [BARU] Konfigurasi Saweria
+  saweria: {
+    name: process.env.SAWERIA_NAME || 'Melon3D',
+  },
+
   trial: {
     enabled: process.env.TRIAL_ENABLED === 'true'
   },
