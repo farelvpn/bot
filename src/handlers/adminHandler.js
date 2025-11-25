@@ -1,9 +1,8 @@
 // src/handlers/adminHandler.js
-
 const userService = require('../services/userService');
 const serverService = require('../services/serverService');
 const { writeLog } = require('../utils/logger');
-const { prettyLine, backButton, formatRupiah } = require('../utils/helpers');
+const { prettyLine, backButton, formatRupiah, escapeMarkdown } = require('../utils/helpers'); // [UPDATE] Import escapeMarkdown
 const config = require('../config');
 
 const pendingAdminAction = {};
@@ -422,7 +421,10 @@ async function handleEditServerDetails(bot, query) {
 
     const censoredToken = `${(server.api_token || '').substring(0, 4)}***********`;
 
-    let text = `✏️ *Kelola Server: ${server.name}*\n`;
+    // [FIX] Escape server name
+    const safeServerName = escapeMarkdown(server.name);
+
+    let text = `✏️ *Kelola Server: ${safeServerName}*\n`;
     text += `${prettyLine()}\n`;
     text += `*ID:* \`${server.id}\`\n`;
     text += `*Domain:* \`${server.domain}\`\n`;
@@ -476,7 +478,8 @@ async function handleManageProtocols(bot, query) {
     const server = serverService.getServerDetails(serverId);
     if (!server) return;
 
-    let text = `⚙️ *Atur Harga & Protokol*\nServer: *${server.name}*\n${prettyLine()}`;
+    const safeServerName = escapeMarkdown(server.name);
+    let text = `⚙️ *Atur Harga & Protokol*\nServer: *${safeServerName}*\n${prettyLine()}`;
     const keyboard = [];
 
     VPN_PROTOCOLS.forEach(proto => {
@@ -681,6 +684,7 @@ async function handleManageUsers(bot, query) {
     });
 }
 
+// [FIX] Menggunakan escapeMarkdown untuk username
 async function showUserManagementMenu(bot, msg) {
     const adminId = msg.from.id.toString();
     const state = pendingAdminAction[adminId] || { chatId: msg.chat.id, messageId: msg.message_id };
@@ -707,9 +711,12 @@ async function showUserManagementMenu(bot, msg) {
     const toggleRoleTarget = user.role === 'user' ? 'reseller' : 'user';
     const toggleRoleText = `Jadikan ${toggleRoleTarget.charAt(0).toUpperCase() + toggleRoleTarget.slice(1)}`;
 
+    // [FIX] Escape karakter markdown pada username
+    const safeUsername = escapeMarkdown(user.username || 'tidak_ada');
+
     let text = `*👤 Mengelola Pengguna*\n${prettyLine()}\n`;
     text += `*ID:* \`${targetUserId}\`\n`;
-    text += `*Username:* @${user.username || 'tidak_ada'}\n`;
+    text += `*Username:* @${safeUsername}\n`;
     text += `*Role:* ${roleText}\n`;
     text += `*Saldo:* ${formatRupiah(user.balance)}\n\n`;
     text += `Pilih tindakan yang ingin Anda lakukan:`;
