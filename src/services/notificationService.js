@@ -12,7 +12,7 @@ async function sendNotificationToGroup(bot, message) {
       parse_mode: 'HTML',
       message_thread_id: config.groupNotification.topicId,
     };
-    await bot.sendMessage(config.groupNotification.chatId, message, options);
+    await bot.telegram.sendMessage(config.groupNotification.chatId, message, options);
   } catch (error) {
     writeLog(`[Notification] Gagal mengirim notifikasi ke grup ${config.groupNotification.chatId}: ${error.message}`);
   }

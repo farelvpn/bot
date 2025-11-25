@@ -1,5 +1,4 @@
 // src/handlers/callbackRouter.js
-
 const { writeLog } = require('../utils/logger');
 const coreHandler = require('./coreHandler'); 
 const topupHandler = require('./topupHandler');
@@ -16,11 +15,21 @@ async function routeCallbackQuery(bot, query) {
   writeLog(`[CallbackRouter] Menerima callback: "${data}" dari User ID: ${userId}`);
   
   if (data === 'noop') { 
-      return bot.answerCallbackQuery(query.id);
+      return bot.telegram.answerCbQuery(query.id);
   }
 
   if (data === 'delete_and_show_menu') {
-      await bot.deleteMessage(chatId, messageId).catch(() => {});
+      await bot.telegram.deleteMessage(chatId, messageId).catch(() => {});
+      return coreHandler.sendMainMenu(bot, userId, chatId, null);
+  }
+
+  if (data.startsWith('cancel_pay_')) {
+      const trxId = data.replace('cancel_pay_', '');
+
+      topupHandler.cancelPolling(trxId);
+
+      await bot.telegram.deleteMessage(chatId, messageId).catch(() => {});
+      await bot.telegram.answerCbQuery(query.id, 'Pembayaran dibatalkan/selesai.');
       return coreHandler.sendMainMenu(bot, userId, chatId, null);
   }
 
@@ -31,15 +40,12 @@ async function routeCallbackQuery(bot, query) {
       return coreHandler.sendMainMenu(bot, userId, chatId, messageId);
   }
 
-  // Rute Topup & Pembayaran
   if (data === 'topup_menu') return topupHandler.handleTopupMenu(bot, query);
-  // [BARU] Rute Pemilihan Pembayaran
   if (data.startsWith('pay_select_')) return topupHandler.handlePaymentSelection(bot, query);
 
   if (data === 'menu_vpn') return vpnHandler.handleVpnMenu(bot, query);
   if (data === 'menu_lain') return otherHandler.handleOtherMenu(bot, query);
 
-  // Rute VPN Trial
   if (data.startsWith('vpn_trial_')) {
       if (data === 'vpn_trial_select_server') return vpnHandler.handleSelectServerForTrial(bot, query);
       if (data.startsWith('vpn_trial_select_protocol_')) return vpnHandler.handleSelectProtocolForTrial(bot, query);
@@ -47,7 +53,6 @@ async function routeCallbackQuery(bot, query) {
       return;
   }
 
-  // Rute VPN (Pembelian & Perpanjangan)
   if (data.startsWith('vpn_')) {
       if (data === 'vpn_buy_select_server') return vpnHandler.handleSelectServerForPurchase(bot, query);
       if (data.startsWith('vpn_select_protocol_')) return vpnHandler.handleSelectProtocol(bot, query);
@@ -58,15 +63,12 @@ async function routeCallbackQuery(bot, query) {
       return;
   }
 
-  // Rute Admin
   if (data.startsWith('admin_')) {
       if (data === 'admin_panel_main') return adminHandler.handleAdminPanelMain(bot, query);
       
-      // [BARU] Rute Pengaturan Pembayaran Admin
       if (data === 'admin_payment_settings') return adminHandler.handlePaymentSettings(bot, query);
       if (data.startsWith('admin_toggle_pay_')) return adminHandler.togglePaymentStatus(bot, query);
 
-      // Rute Kelola Server
       if (data === 'admin_manage_servers') return adminHandler.handleManageServersMenu(bot, query);
       if (data === 'admin_add_server_prompt') return adminHandler.startAddServerFlow(bot, query);
       if (data === 'admin_edit_server_select') return adminHandler.handleSelectServer(bot, query, 'edit');
@@ -79,7 +81,6 @@ async function routeCallbackQuery(bot, query) {
       if (data.startsWith('admin_set_price_')) return adminHandler.promptNewPrice(bot, query);
       if (data.startsWith('admin_toggle_protocol_')) return adminHandler.toggleProtocolStatus(bot, query);
 
-      // Rute Kelola Pengguna
       if (data === 'admin_manage_users') return adminHandler.handleManageUsers(bot, query);
       if (data.startsWith('admin_user_manage_')) {
           const targetUserId = data.split('_').pop();
@@ -91,19 +92,17 @@ async function routeCallbackQuery(bot, query) {
       if (data.startsWith('admin_user_set_balance_')) return adminHandler.promptForBalanceChange(bot, query);
       if (data.startsWith('admin_user_toggle_role_')) return adminHandler.processRoleChange(bot, query);
       
-      // Rute Pengaturan Trial
       if (data === 'admin_trial_settings') return adminHandler.handleTrialSettingsMenu(bot, query);
       if (data === 'admin_set_trial_duration') return adminHandler.promptTrialDurationChange(bot, query);
       if (data === 'admin_set_trial_cooldown_user' || data === 'admin_set_trial_cooldown_reseller') {
           return adminHandler.promptTrialCooldownChange(bot, query);
       }
 
-      // Rute Lainnya
       if (data === 'admin_broadcast_prompt') return adminHandler.handleBroadcastPrompt(bot, query);
       return;
   }
 
-  bot.answerCallbackQuery(query.id).catch(() => {});
+  bot.telegram.answerCbQuery(query.id).catch(() => {});
 }
 
 module.exports = { routeCallbackQuery };

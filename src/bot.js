@@ -1,17 +1,15 @@
 // src/bot.js
 require('dotenv').config();
 
-const TelegramBot = require('node-telegram-bot-api');
+const { Telegraf } = require('telegraf');
 const config = require('./config');
 const { writeLog } = require('./utils/logger');
 
-// Servis
 const userService = require('./services/userService');
 const sqliteService = require('./services/sqliteService');
 const vpnApiService = require('./services/vpnApiService'); 
 const serverService = require('./services/serverService'); 
 
-// Handlers
 const coreHandler = require('./handlers/coreHandler');
 const topupHandler = require('./handlers/topupHandler');
 const adminHandler = require('./handlers/adminHandler');
@@ -23,15 +21,14 @@ if (!config.botToken || !config.adminId) {
     process.exit(1);
 }
 
-let bot;
+const bot = new Telegraf(config.botToken);
 
 if (config.webhook.url) {
-    bot = new TelegramBot(config.botToken);
     const { setupWebhookListener } = require('./handlers/webhookHandler');
     setupWebhookListener(bot);
     writeLog(`Bot "${config.storeName}" berhasil dimulai dalam mode WEBHOOK.`);
 } else {
-    bot = new TelegramBot(config.botToken, { polling: true });
+    bot.launch();
     writeLog(`Bot "${config.storeName}" berhasil dimulai dalam mode POLLING.`);
     if(config.paymentGateway.baseUrl) {
         writeLog("PERINGATAN: Fitur Topup Otomatis (Payment Gateway) tidak akan berfungsi penuh dalam mode polling.");
@@ -53,7 +50,7 @@ async function checkExpiredAccounts() {
             const expiry = new Date(acc.expiry_date);
             const timeLeft = Math.ceil((expiry - now) / (1000 * 60 * 60 * 24));
             const msg = `🔔 *Pengingat Perpanjangan*\n\nAkun VPN Anda (\`${acc.username}\` di server *${acc.server_name}*) akan kedaluwarsa dalam *${timeLeft} hari*.\n\nSegera lakukan perpanjangan.`;
-            await bot.sendMessage(acc.telegram_id, msg, { parse_mode: 'Markdown' }).catch(e => writeLog(`Gagal kirim pengingat ke ${acc.telegram_id}: ${e.message}`));
+            await bot.telegram.sendMessage(acc.telegram_id, msg, { parse_mode: 'Markdown' }).catch(e => writeLog(`Gagal kirim pengingat ke ${acc.telegram_id}: ${e.message}`));
             await sqliteService.run('UPDATE vpn_transactions SET reminder_sent = 1 WHERE id = ?', [acc.id]);
             writeLog(`[Scheduler] Mengirim pengingat ke User ID ${acc.telegram_id} untuk akun ${acc.username}`);
         }
@@ -66,7 +63,6 @@ async function checkExpiredAccounts() {
         writeLog(`[Scheduler] ERROR: ${error.message}`);
     }
 }
-
 
 async function checkExpiredTrials() {
     const now = new Date().toISOString();
@@ -84,7 +80,7 @@ async function checkExpiredTrials() {
                     writeLog(`[TrialScheduler] Berhasil menghapus akun trial ${trial.username} dari server ${server.name}.`);
                     
                     const message = `🔔 *Trial Berakhir*\n\nAkun trial Anda (\`${trial.username}\` di server *${trial.server_name}*) telah kedaluwarsa dan berhasil dihapus.`;
-                    bot.sendMessage(trial.telegram_id, message, { parse_mode: 'Markdown' }).catch(e => {
+                    bot.telegram.sendMessage(trial.telegram_id, message, { parse_mode: 'Markdown' }).catch(e => {
                         writeLog(`[TrialScheduler] Gagal mengirim notifikasi expired ke ${trial.telegram_id}: ${e.message}`);
                     });
 
@@ -113,10 +109,10 @@ if (config.trial.enabled) {
     writeLog('[Init] Fitur Trial dinonaktifkan.');
 }
 
+bot.on('text', async (ctx) => {
+    if (ctx.chat.type !== 'private') return;
 
-bot.on('message', async (msg) => {
-    if (msg.chat.type !== 'private' || !msg.text) return;
-
+    const msg = ctx.message;
     const userId = msg.from.id.toString();
     const username = msg.from.username || `user${userId}`;
     
@@ -142,7 +138,10 @@ bot.on('message', async (msg) => {
     await coreHandler.sendMainMenu(bot, userId, msg.chat.id, null);
 });
 
-bot.on('callback_query', (query) => {
+bot.on('callback_query', (ctx) => {
+    const query = ctx.callbackQuery;
+    if (!query.message) return;
+
     const userId = query.from.id.toString();
     const username = query.from.username || `user${userId}`;
     userService.ensureUser(userId, username);
@@ -150,5 +149,9 @@ bot.on('callback_query', (query) => {
     callbackRouter.routeCallbackQuery(bot, query);
 });
 
-bot.on('webhook_error', (err) => writeLog(`Webhook Error: ${err.message}`));
-bot.on('polling_error', (err) => writeLog(`Polling Error: ${err.message}`));
+bot.catch((err, ctx) => {
+    writeLog(`[Telegraf Error] ${ctx.updateType}: ${err.message}`);
+});
+
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));

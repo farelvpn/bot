@@ -2,7 +2,7 @@
 const userService = require('../services/userService');
 const serverService = require('../services/serverService');
 const config = require('../config');
-const { formatRupiah, prettyLine } = require('../utils/helpers');
+const { formatRupiah, prettyLine, escapeMarkdown } = require('../utils/helpers');
 const { writeLog } = require('../utils/logger');
 const os = require('os');
 const adminHandler = require('./adminHandler');
@@ -12,7 +12,7 @@ async function handleStartCommand(bot, msg) {
   const username = msg.from.username;
   const isNewUser = userService.ensureUser(userId, username);
   if (isNewUser) {
-    await bot.sendMessage(userId, 'Selamat datang! Akun Anda telah berhasil dibuat.');
+    await bot.telegram.sendMessage(userId, 'Selamat datang! Akun Anda telah berhasil dibuat.');
   }
   await sendMainMenu(bot, userId, msg.chat.id);
 }
@@ -30,15 +30,19 @@ async function sendMainMenu(bot, userId, chatId, messageIdToEdit = null) {
     const uptimeM = Math.floor((uptimeSec % 3600) / 60);
     const uptimeStr = `${uptimeH}j ${uptimeM}m`;
 
+    // [PERBAIKAN] Escape variabel dinamis agar tidak merusak Markdown
+    const safeStoreName = escapeMarkdown(config.storeName);
+    const safeUsername = escapeMarkdown(user.username || 'tidak_ada');
+
     const messageText =
-      `🛒 *${config.storeName}*\n${prettyLine()}\n` +
+      `🛒 *${safeStoreName}*\n${prettyLine()}\n` +
       `*Statistik Bot:*\n` +
       `• 🗄️ Server Tersedia: *${allServers.length}*\n` +
       `• ⏱️ Uptime: *${uptimeStr}*\n` +
       `${prettyLine()}\n` +
       `*Akun Anda:*\n` +
       `• 🆔 ID: \`${userId}\`\n` +
-      `• 👤 Username: @${user.username || 'tidak_ada'}\n` +
+      `• 👤 Username: @${safeUsername}\n` +
       `• 💰 Saldo: *${formatRupiah(user.balance)}*\n` +
       `${prettyLine()}\n` +
       `Silakan pilih menu di bawah ini:`;
@@ -49,7 +53,6 @@ async function sendMainMenu(bot, userId, chatId, messageIdToEdit = null) {
         { text: '💳 Topup Saldo', callback_data: 'topup_menu' }
       ],
       [
-        // Tombol trial dihapus dari sini
         { text: '📦 Menu Lainnya', callback_data: 'menu_lain' }
       ]
     ];
@@ -58,20 +61,19 @@ async function sendMainMenu(bot, userId, chatId, messageIdToEdit = null) {
       inline_keyboard.push([{ text: '👑 Panel Admin', callback_data: 'admin_panel_main' }]);
     }
 
-    const options = {
-      chat_id: chatId,
+    const extra = {
       parse_mode: 'Markdown',
       reply_markup: { inline_keyboard }
     };
 
     if (messageIdToEdit) {
-      await bot.editMessageText(messageText, { ...options, message_id: messageIdToEdit }).catch(err => {
-        if(err.code !== 'ETELEGRAM' || !err.message.includes('message is not modified')) {
+      await bot.telegram.editMessageText(chatId, messageIdToEdit, null, messageText, extra).catch(err => {
+        if(!err.message.includes('message is not modified')) {
           writeLog(`[CoreHandler] Edit Error: ${err.message}`);
         }
       });
     } else {
-      await bot.sendMessage(chatId, messageText, options);
+      await bot.telegram.sendMessage(chatId, messageText, extra);
     }
   } catch (error) {
     writeLog(`[CoreHandler] ERROR di sendMainMenu: ${error.message}`);

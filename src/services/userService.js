@@ -11,7 +11,6 @@ function loadDB() {
     users: {},
     settings: { 
       topup: { minAmount: 10000, maxAmount: 1000000 },
-      // [BARU] Pengaturan default metode pembayaran
       payment_methods: {
           gateway_utama: true, 
           saweria: false       
@@ -34,12 +33,10 @@ function loadDB() {
     
     const data = JSON.parse(fileContent);
     
-    // Pastikan struktur data lengkap (Backward Compatibility)
     data.settings = data.settings || defaultDB.settings;
     data.settings.trial = data.settings.trial || defaultDB.settings.trial;
     data.settings.trial.cooldown_hours = data.settings.trial.cooldown_hours || defaultDB.settings.trial.cooldown_hours;
     
-    // [BARU] Pastikan payment_methods ada
     if (!data.settings.payment_methods) {
         data.settings.payment_methods = defaultDB.settings.payment_methods;
     }
@@ -148,13 +145,11 @@ function getAllUsers() {
     return loadDB().users;
 }
 
-// [BARU] Mendapatkan status metode pembayaran
 function getPaymentMethods() {
     const db = loadDB();
     return db.settings.payment_methods || { gateway_utama: true, saweria: false };
 }
 
-// [BARU] Mengubah status metode pembayaran
 function togglePaymentMethod(method, status) {
     const db = loadDB();
     if (!db.settings.payment_methods) db.settings.payment_methods = { gateway_utama: true, saweria: false };
@@ -174,6 +169,6 @@ module.exports = {
     getAllUsers,
     getTrialSettings,
     updateTrialSettings,
-    getPaymentMethods,      // Export fungsi baru
-    togglePaymentMethod     // Export fungsi baru
+    getPaymentMethods,
+    togglePaymentMethod
 };

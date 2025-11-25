@@ -11,12 +11,8 @@ const crypto = require('crypto');
 
 const pendingVpnAction = {};
 
-// Opsi durasi yang bisa dipilih pengguna (dalam hari)
 const DURATION_OPTIONS = [30, 60, 90]; 
 
-// ==========================================================
-// HANDLER INPUT PENGGUNA
-// ==========================================================
 async function handleVpnUserInput(bot, msg) {
     const userId = msg.from.id.toString();
     const state = pendingVpnAction[userId];
@@ -30,15 +26,11 @@ async function handleVpnUserInput(bot, msg) {
     }
 }
 
-// ==========================================================
-// MENU UTAMA VPN
-// ==========================================================
 async function handleVpnMenu(bot, query) {
     const text = `🛡️ *Menu VPN*\n${prettyLine()}\nSilakan pilih salah satu menu di bawah ini untuk mengelola layanan VPN Anda.`;
     
     const row1 = [{ text: '🛒 Beli Akun Baru', callback_data: 'vpn_buy_select_server' }];
     
-    // Tombol trial hanya muncul jika diaktifkan di .env
     if (config.trial.enabled) {
         row1.push({ text: '🎁 Trial Akun', callback_data: 'vpn_trial_select_server' });
     }
@@ -48,22 +40,16 @@ async function handleVpnMenu(bot, query) {
         [{ text: '🔄 Perpanjang Akun', callback_data: 'vpn_renew_select_account' }],
         [backButton('⬅️ Kembali', 'back_menu')]
     ];
-    await bot.editMessageText(text, {
-        chat_id: query.message.chat.id,
-        message_id: query.message.message_id,
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
         parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: keyboard }
     });
 }
 
-
-// ==========================================================
-// ALUR PEMBELIAN AKUN BARU
-// ==========================================================
 async function handleSelectServerForPurchase(bot, query) {
     const servers = serverService.getAllAvailableServers().filter(s => Object.values(s.protocols).some(p => p.enabled));
     if (servers.length === 0) {
-        return bot.answerCallbackQuery(query.id, { text: 'Saat ini belum ada server yang tersedia.', show_alert: true });
+        return bot.telegram.answerCbQuery(query.id, 'Saat ini belum ada server yang tersedia.', { show_alert: true });
     }
     
     const keyboard = [];
@@ -76,8 +62,7 @@ async function handleSelectServerForPurchase(bot, query) {
     keyboard.push([backButton('⬅️ Kembali', 'menu_vpn')]);
 
     const text = `*🛒 Beli Akun VPN Baru (Langkah 1 dari 4)*\n${prettyLine()}\nSilakan pilih lokasi server yang Anda inginkan:`;
-    await bot.editMessageText(text, {
-        chat_id: query.message.chat.id, message_id: query.message.message_id,
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
         parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
     });
 }
@@ -85,13 +70,13 @@ async function handleSelectServerForPurchase(bot, query) {
 async function handleSelectProtocol(bot, query) {
     const serverId = query.data.split('_').pop();
     const server = serverService.getServerDetails(serverId);
-    if (!server) return bot.answerCallbackQuery(query.id, { text: 'Server tidak ditemukan.', show_alert: true });
+    if (!server) return bot.telegram.answerCbQuery(query.id, 'Server tidak ditemukan.', { show_alert: true });
 
     const availableProtocols = Object.entries(server.protocols)
         .filter(([, details]) => details.enabled);
 
     if (availableProtocols.length === 0) {
-        return bot.answerCallbackQuery(query.id, { text: 'Server ini belum memiliki protokol aktif.', show_alert: true });
+        return bot.telegram.answerCbQuery(query.id, 'Server ini belum memiliki protokol aktif.', { show_alert: true });
     }
 
     const user = userService.getUser(query.from.id.toString());
@@ -105,8 +90,7 @@ async function handleSelectProtocol(bot, query) {
 
     keyboard.push([backButton('⬅️ Kembali', 'vpn_buy_select_server')]);
     const text = `*Pilih Protokol di ${server.name} (Langkah 2 dari 4)*\n${prettyLine()}\nSilakan pilih jenis protokol yang Anda inginkan:`;
-    await bot.editMessageText(text, {
-        chat_id: query.message.chat.id, message_id: query.message.message_id,
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
         parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
     });
 }
@@ -118,7 +102,7 @@ async function handleSelectDuration(bot, query) {
     const user = userService.getUser(query.from.id.toString());
 
     if (!protoDetails || !protoDetails.enabled) {
-        return bot.answerCallbackQuery(query.id, { text: 'Protokol ini tidak lagi tersedia.', show_alert: true });
+        return bot.telegram.answerCbQuery(query.id, 'Protokol ini tidak lagi tersedia.', { show_alert: true });
     }
     
     const pricePer30Days = protoDetails.prices[user.role] || protoDetails.prices.user;
@@ -134,8 +118,7 @@ async function handleSelectDuration(bot, query) {
     keyboard.push([backButton('⬅️ Kembali', `vpn_select_protocol_${serverId}`)]);
 
     const text = `*Pilih Durasi untuk ${protoId.toUpperCase()} (Langkah 3 dari 4)*\n${prettyLine()}\nPilih masa aktif yang Anda inginkan:`;
-    await bot.editMessageText(text, {
-        chat_id: query.message.chat.id, message_id: query.message.message_id,
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
         parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
     });
 }
@@ -151,8 +134,7 @@ async function handleEnterUsername(bot, query) {
     };
 
     const text = `*Masukkan Username (Langkah 4 dari 4)*\n${prettyLine()}\nSilakan ketik username yang Anda inginkan.\n\n*(Hanya huruf kecil dan angka, tanpa spasi)*`;
-    await bot.editMessageText(text, {
-        chat_id: query.message.chat.id, message_id: query.message.message_id,
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
         parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: [[backButton('Batal', `vpn_select_duration_${serverId}_${protoId}`)]] }
     });
@@ -163,11 +145,11 @@ async function handleEnterPassword(bot, msg) {
     const state = pendingVpnAction[userId];
     const username = msg.text.trim();
     
-    await bot.deleteMessage(state.chatId, msg.message_id).catch(() => {});
+    await bot.telegram.deleteMessage(state.chatId, msg.message_id).catch(() => {});
 
     if (!/^[a-z0-9]+$/.test(username)) {
         delete pendingVpnAction[userId];
-        await bot.editMessageText('❌ Username tidak valid. Proses dibatalkan.', { chat_id: state.chatId, message_id: state.messageId, parse_mode: 'Markdown' });
+        await bot.telegram.editMessageText(state.chatId, state.messageId, null, '❌ Username tidak valid. Proses dibatalkan.', { parse_mode: 'Markdown' });
         return;
     }
     
@@ -176,7 +158,7 @@ async function handleEnterPassword(bot, msg) {
     if (state.protoId === 'ssh' || state.protoId === 's5') {
         state.step = 'get_password';
         const text = `*Masukkan Password*\n${prettyLine()}\nSekarang, masukkan password untuk akun Anda.`;
-        await bot.editMessageText(text, { chat_id: state.chatId, message_id: state.messageId, parse_mode: 'Markdown' });
+        await bot.telegram.editMessageText(state.chatId, state.messageId, null, text, { parse_mode: 'Markdown' });
     } else {
         await handleProcessPurchase(bot, msg);
     }
@@ -190,7 +172,7 @@ async function handleProcessPurchase(bot, msg) {
     const { serverId, protoId, duration, chatId, messageId, username } = state;
     const password = (state.step === 'get_password') ? msg.text.trim() : crypto.randomBytes(4).toString('hex');
     
-    await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+    await bot.telegram.deleteMessage(chatId, msg.message_id).catch(() => {});
     delete pendingVpnAction[userId];
 
     const server = serverService.getServerDetails(serverId);
@@ -199,11 +181,11 @@ async function handleProcessPurchase(bot, msg) {
     const finalPrice = (duration / 30) * pricePer30Days;
 
     if (user.balance < finalPrice) {
-        await bot.editMessageText(`❌ Saldo Anda tidak mencukupi. Dibutuhkan ${formatRupiah(finalPrice)}.`, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' });
+        await bot.telegram.editMessageText(chatId, messageId, null, `❌ Saldo Anda tidak mencukupi. Dibutuhkan ${formatRupiah(finalPrice)}.`, { parse_mode: 'Markdown' });
         return;
     }
 
-    await bot.editMessageText('⏳ Sedang membuat akun VPN Anda, mohon tunggu...\n\n_(Proses ini dapat memakan waktu hingga 1 menit)_', { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' });
+    await bot.telegram.editMessageText(chatId, messageId, null, '⏳ Sedang membuat akun VPN Anda, mohon tunggu...\n\n_(Proses ini dapat memakan waktu hingga 1 menit)_', { parse_mode: 'Markdown' });
 
     try {
         const result = await vpnApiService.createAccount(server, protoId, username, password, duration);
@@ -218,7 +200,7 @@ async function handleProcessPurchase(bot, msg) {
             [result.trx_id, userId, msg.from.username, server.name, protoId, username, result.password, finalPrice, duration, purchaseDate.toISOString(), expiryDate.toISOString()]
         );
         
-        await bot.editMessageText(result.details, { chat_id: chatId, message_id: messageId, parse_mode: 'HTML' });
+        await bot.telegram.editMessageText(chatId, messageId, null, result.details, { parse_mode: 'HTML' });
 
         const summaryText = `
 📄 *Ringkasan Pembelian*
@@ -234,7 +216,7 @@ async function handleProcessPurchase(bot, msg) {
 *Saldo Akhir:* *${formatRupiah(updatedUser.balance)}*
         `;
         
-        await bot.sendMessage(chatId, summaryText, { 
+        await bot.telegram.sendMessage(chatId, summaryText, { 
             parse_mode: 'Markdown',
             reply_markup: {
                 inline_keyboard: [[backButton('⬅️ Kembali ke Menu', 'back_menu')]]
@@ -250,21 +232,18 @@ async function handleProcessPurchase(bot, msg) {
         if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
             errorMessage = "Server tidak merespons dalam 1 menit. Proses dibatalkan dan saldo Anda tidak dipotong. Silakan coba lagi nanti.";
         }
-        await bot.editMessageText(`❌ *Gagal Membuat Akun*\n\n${errorMessage}`, {
-            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+        await bot.telegram.editMessageText(chatId, messageId, null, `❌ *Gagal Membuat Akun*\n\n${errorMessage}`, {
+            parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [[backButton('Kembali', 'menu_vpn')]] }
         });
     }
 }
 
-// ==========================================================
-// ALUR PERPANJANGAN AKUN
-// ==========================================================
 async function handleSelectAccountForRenew(bot, query) {
     const userId = query.from.id.toString();
     const accounts = await sqliteService.all('SELECT * FROM vpn_transactions WHERE telegram_id = ? ORDER BY expiry_date ASC', [userId]);
     if (accounts.length === 0) {
-        return bot.answerCallbackQuery(query.id, { text: 'Anda tidak memiliki akun VPN aktif.', show_alert: true });
+        return bot.telegram.answerCbQuery(query.id, 'Anda tidak memiliki akun VPN aktif.', { show_alert: true });
     }
 
     let text = `🔄 *Perpanjang Akun VPN*\n${prettyLine()}\nBerikut adalah daftar akun aktif Anda. Silakan pilih akun yang ingin diperpanjang.\n\n`;
@@ -280,8 +259,7 @@ async function handleSelectAccountForRenew(bot, query) {
         keyboard.push([{ text: `${acc.server_name} - ${acc.username}`, callback_data: `vpn_confirm_renew_${acc.id}` }]);
     }
     keyboard.push([backButton('⬅️ Kembali', 'menu_vpn')]);
-    await bot.editMessageText(text, {
-        chat_id: query.message.chat.id, message_id: query.message.message_id,
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
         parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
     });
 }
@@ -291,38 +269,34 @@ async function handleConfirmRenew(bot, query) {
     const accountId = query.data.split('_').pop();
     const account = await sqliteService.get('SELECT * FROM vpn_transactions WHERE id = ? AND telegram_id = ?', [accountId, userId]);
 
-    if (!account) return bot.answerCallbackQuery(query.id, { text: 'Akun tidak ditemukan.', show_alert: true });
+    if (!account) return bot.telegram.answerCbQuery(query.id, 'Akun tidak ditemukan.', { show_alert: true });
 
     const server = serverService.getAllAvailableServers().find(s => s.name === account.server_name);
-    if (!server) return bot.answerCallbackQuery(query.id, { text: 'Server untuk akun ini sudah tidak tersedia.', show_alert: true });
+    if (!server) return bot.telegram.answerCbQuery(query.id, 'Server untuk akun ini sudah tidak tersedia.', { show_alert: true });
     
     const user = userService.getUser(userId);
     const price = server.protocols[account.protocol]?.prices[user.role] || server.protocols[account.protocol]?.prices.user || 0;
 
     if (query.data.includes('_dorenew_')) {
         if (user.balance < price) {
-            return bot.answerCallbackQuery(query.id, { text: `Saldo tidak cukup! Dibutuhkan ${formatRupiah(price)}.`, show_alert: true });
+            return bot.telegram.answerCbQuery(query.id, `Saldo tidak cukup! Dibutuhkan ${formatRupiah(price)}.`, { show_alert: true });
         }
-        await bot.editMessageText('⏳ Memperpanjang akun, mohon tunggu...', {
-            chat_id: query.message.chat.id, message_id: query.message.message_id
-        });
+        await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, '⏳ Memperpanjang akun, mohon tunggu...');
         try {
             await vpnApiService.renewAccount(server, account.protocol, account.username);
             userService.updateUserBalance(userId, -price, 'perpanjang_vpn', { username: account.username });
             const newExpiry = new Date(account.expiry_date);
             newExpiry.setDate(newExpiry.getDate() + 30);
             await sqliteService.run('UPDATE vpn_transactions SET expiry_date = ? WHERE id = ?', [newExpiry.toISOString(), accountId]);
-            await bot.editMessageText(`✅ *Perpanjangan Berhasil!*\n\nAkun \`${account.username}\` telah diperpanjang selama 30 hari.`, {
-                chat_id: query.message.chat.id, message_id: query.message.message_id, parse_mode: 'Markdown',
+            await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, `✅ *Perpanjangan Berhasil!*\n\nAkun \`${account.username}\` telah diperpanjang selama 30 hari.`, {
+                parse_mode: 'Markdown',
                 reply_markup: { inline_keyboard: [[backButton('Kembali ke Menu VPN', 'menu_vpn')]] }
             });
             notificationService.sendVpnRenewNotification(bot, query.from, {
                 serverName: server.name, protocol: account.protocol, username: account.username, price: price
             });
         } catch (error) {
-            await bot.editMessageText(`❌ *Gagal Memperpanjang*\n\n${error.message}`, {
-                chat_id: query.message.chat.id, message_id: query.message.message_id, parse_mode: 'Markdown'
-            });
+            await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, `❌ *Gagal Memperpanjang*\n\n${error.message}`, { parse_mode: 'Markdown' });
         }
     } else {
         const text = `*Konfirmasi Perpanjangan*\n${prettyLine()}\n` +
@@ -336,20 +310,16 @@ async function handleConfirmRenew(bot, query) {
             [{ text: '✅ Ya, Perpanjang Sekarang', callback_data: `vpn_confirm_renew__dorenew_${accountId}` }],
             [backButton('Batalkan', 'vpn_renew_select_account')]
         ];
-        await bot.editMessageText(text, {
-            chat_id: query.message.chat.id, message_id: query.message.message_id,
+        await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
             parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
         });
     }
 }
 
-// ==========================================================
-// ALUR TRIAL AKUN
-// ==========================================================
 async function handleSelectServerForTrial(bot, query) {
     const servers = serverService.getAllAvailableServers().filter(s => Object.values(s.protocols).some(p => p.enabled));
     if (servers.length === 0) {
-        return bot.answerCallbackQuery(query.id, { text: 'Saat ini belum ada server yang tersedia untuk trial.', show_alert: true });
+        return bot.telegram.answerCbQuery(query.id, 'Saat ini belum ada server yang tersedia untuk trial.', { show_alert: true });
     }
 
     const keyboard = servers.map(server => ([{
@@ -359,8 +329,7 @@ async function handleSelectServerForTrial(bot, query) {
     keyboard.push([backButton('⬅️ Kembali', 'menu_vpn')]);
 
     const text = `*🎁 Trial Akun VPN (Langkah 1 dari 2)*\n${prettyLine()}\nSilakan pilih server yang ingin Anda coba:`;
-    await bot.editMessageText(text, {
-        chat_id: query.message.chat.id, message_id: query.message.message_id,
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
         parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
     });
 }
@@ -369,12 +338,12 @@ async function handleSelectProtocolForTrial(bot, query) {
     const userId = query.from.id.toString();
     const serverId = query.data.split('_').pop();
     const server = serverService.getServerDetails(serverId);
-    if (!server) return bot.answerCallbackQuery(query.id, { text: 'Server tidak ditemukan.', show_alert: true });
+    if (!server) return bot.telegram.answerCbQuery(query.id, 'Server tidak ditemukan.', { show_alert: true });
 
     const availableProtocols = Object.entries(server.protocols)
         .filter(([, details]) => details.enabled);
     if (availableProtocols.length === 0) {
-        return bot.answerCallbackQuery(query.id, { text: 'Server ini belum memiliki protokol aktif.', show_alert: true });
+        return bot.telegram.answerCbQuery(query.id, 'Server ini belum memiliki protokol aktif.', { show_alert: true });
     }
 
     const user = userService.getUser(userId);
@@ -410,8 +379,7 @@ async function handleSelectProtocolForTrial(bot, query) {
 
     keyboard.push([backButton('⬅️ Kembali', 'vpn_trial_select_server')]);
     const text = `*Pilih Protokol Trial di ${server.name} (Langkah 2 dari 2)*\n${prettyLine()}\nPilih protokol yang ingin Anda coba.`;
-    await bot.editMessageText(text, {
-        chat_id: query.message.chat.id, message_id: query.message.message_id,
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
         parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
     });
 }
@@ -433,14 +401,12 @@ async function processTrialClaim(bot, query) {
             const lastTrialTime = new Date(lastTrial.timestamp);
             const cooldownEndTime = new Date(lastTrialTime.getTime() + userCooldownHours * 60 * 60 * 1000);
             if (now < cooldownEndTime) {
-                return bot.answerCallbackQuery(query.id, { text: `Anda baru saja mengklaim trial untuk protokol ini.`, show_alert: true });
+                return bot.telegram.answerCbQuery(query.id, `Anda baru saja mengklaim trial untuk protokol ini.`, { show_alert: true });
             }
         }
     }
     
-    await bot.editMessageText('⏳ Sedang menyiapkan akun trial Anda, mohon tunggu...', {
-        chat_id: chatId, message_id: messageId
-    });
+    await bot.telegram.editMessageText(chatId, messageId, null, '⏳ Sedang menyiapkan akun trial Anda, mohon tunggu...');
 
     try {
         const server = serverService.getServerDetails(serverId);
@@ -468,9 +434,7 @@ async function processTrialClaim(bot, query) {
             [userId, serverId, protoId, now.toISOString()]
         );
 
-        await bot.editMessageText(result.details, {
-            chat_id: chatId,
-            message_id: messageId,
+        await bot.telegram.editMessageText(chatId, messageId, null, result.details, {
             parse_mode: 'HTML',
         });
 
@@ -480,7 +444,7 @@ async function processTrialClaim(bot, query) {
                          `*• Cooldown:* ${cooldownText}\n\n` +
                          `Akun ini akan otomatis dihapus setelah *${trialDurationMinutes} menit*.`;
 
-        await bot.sendMessage(chatId, infoText, {
+        await bot.telegram.sendMessage(chatId, infoText, {
             parse_mode: 'Markdown',
             reply_markup: {
                 inline_keyboard: [[{ text: '✅ Selesai', callback_data: 'delete_and_show_menu' }]]
@@ -491,15 +455,12 @@ async function processTrialClaim(bot, query) {
 
     } catch (error) {
         writeLog(`[VpnHandler] Gagal membuat akun trial untuk ${userId}: ${error.message}`);
-        await bot.editMessageText(`❌ *Gagal Membuat Akun Trial*\n\n${error.message}`, {
-            chat_id: chatId,
-            message_id: messageId,
+        await bot.telegram.editMessageText(chatId, messageId, null, `❌ *Gagal Membuat Akun Trial*\n\n${error.message}`, {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [[backButton('Kembali', 'menu_vpn')]] }
         });
     }
 }
-
 
 module.exports = { 
     handleVpnMenu, 

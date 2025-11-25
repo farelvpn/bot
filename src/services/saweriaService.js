@@ -6,14 +6,11 @@ const { v4: uuidv4 } = require('uuid');
 const config = require('../config');
 const { writeLog } = require('../utils/logger');
 
-// Pastikan folder temp untuk QR ada
 const qrDir = path.join(__dirname, '../../temp_qr');
 if (!fs.existsSync(qrDir)) {
     fs.mkdirSync(qrDir, { recursive: true });
 }
 
-// --- GENERATOR DATA REALISTIS ---
-// Database nama sederhana untuk email
 const firstNames = ['aditya', 'agung', 'ahmad', 'aisyah', 'andi', 'anisa', 'bagus', 'bayu', 'budi', 'cahya', 'citra', 'dewi', 'dimas', 'dina', 'eka', 'fajar', 'gilang', 'hana', 'hendra', 'indah', 'intan', 'joko', 'kartika', 'lestari', 'linda', 'maya', 'mega', 'muhammad', 'nanda', 'novi', 'nur', 'putra', 'putri', 'rama', 'rani', 'ratna', 'reza', 'rian', 'rizki', 'rudi', 'sari', 'setiawan', 'siti', 'surya', 'tiara', 'tri', 'wahyu', 'wulan', 'yoga', 'yudi', 'yulia'];
 const lastNames = ['pratama', 'saputra', 'hidayat', 'wijaya', 'santoso', 'ramadhan', 'kurniawan', 'prakoso', 'wibowo', 'lesmana', 'nugroho', 'utami', 'kusuma', 'putri', 'yuliana', 'anggraini', 'susanti', 'handayani', 'permata', 'siregar', 'fauzi', 'maulana', 'iskandar', 'setiawan', 'budiman'];
 
@@ -25,8 +22,6 @@ function generateRandomEmail() {
     return `${firstName}${separator}${lastName}${randomNum}@gmail.com`;
 }
 
-// --- FUNGSI UTAMA ---
-
 async function createQr(amount, userId) {
     try {
         // 1. Siapkan Path & Data
@@ -34,14 +29,10 @@ async function createQr(amount, userId) {
         const outputPath = path.join(qrDir, filename);
         const randomEmail = generateRandomEmail();
         
-        // Ambil nama toko dari config/env
-        // Pastikan SAWERIA_NAME di .env benar (username saweria, misal 'Melon3D')
         const saweriaUsername = config.saweria.name;
 
         writeLog(`[Saweria] Membuat QR via Library untuk user ${userId}. Nominal: ${amount}. Email: ${randomEmail}`);
 
-        // 2. Panggil Library qris-saweria
-        // Parameter: username, amount, email, outputPath, useTemplate(true)
         const [qrString, transactionId, qrImagePath] = await saweriaQris.createPaymentQr(
             saweriaUsername,
             amount,
@@ -55,11 +46,11 @@ async function createQr(amount, userId) {
         return {
             qrString,
             transactionId,
-            qrImagePath // Path file gambar yang dihasilkan library
+            qrImagePath
         };
 
     } catch (error) {
-        // Tangkap error spesifik
+
         let errorMsg = error.message;
         if (error.response) {
             errorMsg = `Status ${error.response.status} - ${JSON.stringify(error.response.data)}`;
@@ -67,7 +58,6 @@ async function createQr(amount, userId) {
         
         writeLog(`[Saweria] Gagal membuat QR: ${errorMsg}`);
         
-        // Jika error 403/Forbidden, biasanya karena IP Server diblokir Cloudflare
         if (errorMsg.includes('403') || errorMsg.includes('Forbidden')) {
             throw new Error('Gagal koneksi ke Saweria (IP Blokir/403). Coba gunakan IP Residential atau VPN.');
         }
@@ -78,9 +68,8 @@ async function createQr(amount, userId) {
 
 async function checkStatus(transactionId) {
     try {
-        // Library ini memiliki fungsi cek status sederhana
         const isPaid = await saweriaQris.paidStatus(transactionId);
-        return isPaid; // Return true/false
+        return isPaid;
     } catch (error) {
         writeLog(`[Saweria] Error cek status ${transactionId}: ${error.message}`);
         return false;

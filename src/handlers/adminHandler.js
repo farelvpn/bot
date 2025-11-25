@@ -66,7 +66,6 @@ async function handleAdminPanelMain(bot, queryOrMsg) {
             { text: '🎁 Pengaturan Trial', callback_data: 'admin_trial_settings' },
             { text: '📢 Broadcast Pesan', callback_data: 'admin_broadcast_prompt' }
         ],
-        // [BARU] Tombol Pengaturan Pembayaran
         [
             { text: '⚙️ Metode Pembayaran', callback_data: 'admin_payment_settings' }
         ],
@@ -81,7 +80,7 @@ async function handleAdminPanelMain(bot, queryOrMsg) {
     if (queryOrMsg.message) { 
         const chatId = queryOrMsg.message.chat.id;
         const messageId = queryOrMsg.message.message_id;
-        await bot.editMessageText(text, { ...options, chat_id: chatId, message_id: messageId })
+        await bot.telegram.editMessageText(chatId, messageId, null, text, options)
             .catch(err => {
                 if (!err.message.includes('message is not modified')) {
                     writeLog(`[AdminHandler] Error edit di handleAdminPanelMain: ${err.message}`);
@@ -89,12 +88,11 @@ async function handleAdminPanelMain(bot, queryOrMsg) {
             });
     } else { 
         const chatId = queryOrMsg.chat.id;
-        await bot.sendMessage(chatId, text, options)
+        await bot.telegram.sendMessage(chatId, text, options)
             .catch(err => writeLog(`[AdminHandler] Error send di handleAdminPanelMain: ${err.message}`));
     }
 }
 
-// [BARU] Handler Menu Pengaturan Pembayaran
 async function handlePaymentSettings(bot, query) {
     if (!isAdmin(query.from.id.toString())) return;
     
@@ -113,15 +111,12 @@ async function handlePaymentSettings(bot, query) {
         [backButton('⬅️ Kembali', 'admin_panel_main')]
     ];
 
-    await bot.editMessageText(text, {
-        chat_id: query.message.chat.id,
-        message_id: query.message.message_id,
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
         parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: keyboard }
     });
 }
 
-// [BARU] Handler Toggle Status Pembayaran
 async function togglePaymentStatus(bot, query) {
     if (!isAdmin(query.from.id.toString())) return;
     
@@ -131,7 +126,6 @@ async function togglePaymentStatus(bot, query) {
     
     userService.togglePaymentMethod(method, newStatus);
     
-    // Refresh tampilan menu
     return handlePaymentSettings(bot, query);
 }
 
@@ -161,9 +155,7 @@ async function handleTrialSettingsMenu(bot, query) {
         [backButton('⬅️ Kembali', 'admin_panel_main')]
     ];
 
-    await bot.editMessageText(text, {
-        chat_id: query.message.chat.id,
-        message_id: query.message.message_id,
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
         parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: keyboard }
     });
@@ -185,9 +177,7 @@ async function promptTrialDurationChange(bot, query) {
                  `• \`60\` untuk 60 menit\n` +
                  `• \`120\` untuk 2 jam`;
 
-    await bot.editMessageText(text, {
-        chat_id: query.message.chat.id,
-        message_id: query.message.message_id,
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
         parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: [[backButton('Batal', 'admin_trial_settings')]] }
     });
@@ -201,13 +191,13 @@ async function processTrialDurationChange(bot, msg) {
     const { chatId, messageId } = state;
     const input = msg.text.trim();
     
-    await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+    await bot.telegram.deleteMessage(chatId, msg.message_id).catch(() => {});
     delete pendingAdminAction[adminId];
 
     const minutes = parseInt(input, 10);
     if (isNaN(minutes) || minutes <= 0) {
-        const err = await bot.sendMessage(chatId, 'Input tidak valid. Harap masukkan angka positif.');
-        setTimeout(() => bot.deleteMessage(chatId, err.message_id).catch(()=>{}), 5000);
+        const err = await bot.telegram.sendMessage(chatId, 'Input tidak valid. Harap masukkan angka positif.');
+        setTimeout(() => bot.telegram.deleteMessage(chatId, err.message_id).catch(()=>{}), 5000);
         const refreshedQuery = {
             from: { id: adminId },
             data: 'admin_trial_settings',
@@ -248,9 +238,7 @@ async function promptTrialCooldownChange(bot, query) {
                  `• \`1\` untuk 1 jam\n` +
                  `• \`unlimited\` atau \`unli\` untuk tanpa batas.`;
 
-    await bot.editMessageText(text, {
-        chat_id: query.message.chat.id,
-        message_id: query.message.message_id,
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
         parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: [[backButton('Batal', 'admin_trial_settings')]] }
     });
@@ -264,7 +252,7 @@ async function processTrialCooldownChange(bot, msg) {
     const { role, chatId, messageId } = state;
     const input = msg.text.trim().toLowerCase();
     
-    await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+    await bot.telegram.deleteMessage(chatId, msg.message_id).catch(() => {});
     delete pendingAdminAction[adminId];
 
     let hours;
@@ -273,8 +261,8 @@ async function processTrialCooldownChange(bot, msg) {
     } else {
         hours = parseInt(input, 10);
         if (isNaN(hours) || hours < 0) {
-            const err = await bot.sendMessage(chatId, 'Input tidak valid. Harap masukkan angka atau "unlimited".');
-            setTimeout(() => bot.deleteMessage(chatId, err.message_id).catch(()=>{}), 5000);
+            const err = await bot.telegram.sendMessage(chatId, 'Input tidak valid. Harap masukkan angka atau "unlimited".');
+            setTimeout(() => bot.telegram.deleteMessage(chatId, err.message_id).catch(()=>{}), 5000);
             const refreshedQuery = {
                 from: { id: adminId },
                 data: 'admin_trial_settings',
@@ -304,8 +292,7 @@ async function handleManageServersMenu(bot, query) {
         [{ text: '🗑️ Hapus Server', callback_data: 'admin_delete_server_select' }],
         [backButton('⬅️ Kembali', 'admin_panel_main')]
     ];
-    await bot.editMessageText(text, {
-        chat_id: query.message.chat.id, message_id: query.message.message_id,
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
         parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
     });
 }
@@ -314,7 +301,7 @@ async function handleSelectServer(bot, query, action) {
     if (!isAdmin(query.from.id.toString())) return;
     const allServers = serverService.getAllAvailableServers();
     if (allServers.length === 0) {
-        return bot.answerCallbackQuery(query.id, { text: 'Tidak ada server yang tersedia.', show_alert: true });
+        return bot.telegram.answerCbQuery(query.id, 'Tidak ada server yang tersedia.', { show_alert: true });
     }
 
     let title, callbackPrefix;
@@ -331,8 +318,7 @@ async function handleSelectServer(bot, query, action) {
         callback_data: `${callbackPrefix}${server.id}`
     }]));
     keyboard.push([backButton('⬅️ Kembali', 'admin_manage_servers')]);
-    await bot.editMessageText(`*${title}*\n${prettyLine()}\nPilih server yang ingin Anda ${action}.`, {
-        chat_id: query.message.chat.id, message_id: query.message.message_id,
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, `*${title}*\n${prettyLine()}\nPilih server yang ingin Anda ${action}.`, {
         parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
     });
 }
@@ -344,8 +330,7 @@ async function startAddServerFlow(bot, query) {
     const text = '➕ *Tambah Server Baru (1/4): ID Server*\n\n' +
                  'Kirimkan *ID unik* untuk server (contoh: `sg-vultr`). Hanya huruf kecil, angka, dan strip.';
     
-    await bot.editMessageText(text, {
-        chat_id: query.message.chat.id, message_id: query.message.message_id,
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
         parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: [[backButton('Batal', 'admin_manage_servers')]] }
     });
@@ -361,35 +346,35 @@ async function processServerId(bot, msg) {
     const adminId = msg.from.id.toString();
     const state = pendingAdminAction[adminId];
     const inputId = msg.text.trim();
-    await bot.deleteMessage(state.chatId, msg.message_id).catch(() => {});
+    await bot.telegram.deleteMessage(state.chatId, msg.message_id).catch(() => {});
 
     if (!/^[a-z0-9-]+$/.test(inputId) || serverService.getServerDetails(inputId)) {
-        const err = await bot.sendMessage(state.chatId, '❌ ID tidak valid atau sudah digunakan. Coba lagi.');
-        setTimeout(() => bot.deleteMessage(state.chatId, err.message_id).catch(()=>{}), 5000);
+        const err = await bot.telegram.sendMessage(state.chatId, '❌ ID tidak valid atau sudah digunakan. Coba lagi.');
+        setTimeout(() => bot.telegram.deleteMessage(state.chatId, err.message_id).catch(()=>{}), 5000);
         return;
     }
 
     state.serverData.id = inputId;
     state.nextStep = processServerName;
     const text = '*(2/4): Nama Tampilan Server*\n\nMasukkan nama untuk server ini (contoh: `SG Vultr 1`).';
-    await bot.editMessageText(text, { chat_id: state.chatId, message_id: state.messageId, parse_mode: 'Markdown' });
+    await bot.telegram.editMessageText(state.chatId, state.messageId, null, text, { parse_mode: 'Markdown' });
 }
 
 async function processServerName(bot, msg) {
     const adminId = msg.from.id.toString();
     const state = pendingAdminAction[adminId];
     state.serverData.name = msg.text.trim();
-    await bot.deleteMessage(state.chatId, msg.message_id).catch(() => {});
+    await bot.telegram.deleteMessage(state.chatId, msg.message_id).catch(() => {});
     state.nextStep = processServerDomain;
     const text = '*(3/4): Domain Server*\n\nMasukkan domain API server (contoh: `api.domain.com`).';
-    await bot.editMessageText(text, { chat_id: state.chatId, message_id: state.messageId, parse_mode: 'Markdown' });
+    await bot.telegram.editMessageText(state.chatId, state.messageId, null, text, { parse_mode: 'Markdown' });
 }
 
 async function processServerDomain(bot, msg) {
     const adminId = msg.from.id.toString();
     const state = pendingAdminAction[adminId];
     let inputDomain = msg.text.trim();
-    await bot.deleteMessage(state.chatId, msg.message_id).catch(() => {});
+    await bot.telegram.deleteMessage(state.chatId, msg.message_id).catch(() => {});
 
     if (!inputDomain.startsWith('http://') && !inputDomain.startsWith('https://')) {
         inputDomain = 'https://' + inputDomain;
@@ -398,13 +383,13 @@ async function processServerDomain(bot, msg) {
     state.serverData.domain = inputDomain;
     state.nextStep = processServerToken;
     const text = '*(4/4): Token API*\n\nTerakhir, masukkan *API Token* untuk server ini.';
-    await bot.editMessageText(text, { chat_id: state.chatId, message_id: state.messageId, parse_mode: 'Markdown' });
+    await bot.telegram.editMessageText(state.chatId, state.messageId, null, text, { parse_mode: 'Markdown' });
 }
 
 async function processServerToken(bot, msg) {
     const adminId = msg.from.id.toString();
     const state = pendingAdminAction[adminId];
-    await bot.deleteMessage(state.chatId, msg.message_id).catch(() => {});
+    await bot.telegram.deleteMessage(state.chatId, msg.message_id).catch(() => {});
 
     state.serverData.api_token = msg.text.trim();
     state.serverData.protocols = {};
@@ -419,8 +404,8 @@ async function processServerToken(bot, msg) {
     delete pendingAdminAction[adminId];
     
     const text = `✅ *Server Berhasil Ditambahkan!*\n\nServer *${state.serverData.name}* telah disimpan.\n\nSekarang, silakan aktifkan protokol dan atur harganya melalui menu *Edit Server*.`;
-    await bot.editMessageText(text, {
-        chat_id: state.chatId, message_id: state.messageId, parse_mode: 'Markdown',
+    await bot.telegram.editMessageText(state.chatId, state.messageId, null, text, {
+        parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: [[backButton('Kembali', 'admin_manage_servers')]] }
     });
 }
@@ -431,7 +416,7 @@ async function handleEditServerDetails(bot, query) {
     const server = serverService.getServerDetails(serverId);
 
     if (!server) {
-        await bot.answerCallbackQuery(query.id, { text: 'Server tidak ditemukan.', show_alert: true });
+        await bot.telegram.answerCbQuery(query.id, 'Server tidak ditemukan.', { show_alert: true });
         return handleManageServersMenu(bot, query);
     }
 
@@ -466,8 +451,7 @@ async function handleEditServerDetails(bot, query) {
     
     keyboard.push([backButton('⬅️ Kembali ke Daftar Server', 'admin_edit_server_select')]);
     
-    await bot.editMessageText(text, {
-        chat_id: query.message.chat.id, message_id: query.message.message_id,
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
         parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
     });
 }
@@ -481,8 +465,7 @@ async function handleConfigServer(bot, query) {
         [{ text: 'Ubah API Key', callback_data: `admin_edit_servertoken_${serverId}` }],
         [backButton('⬅️ Kembali', `admin_edit_server_details_${serverId}`)]
     ];
-    await bot.editMessageText(text, {
-        chat_id: query.message.chat.id, message_id: query.message.message_id,
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
         parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
     });
 }
@@ -516,9 +499,7 @@ async function handleManageProtocols(bot, query) {
     keyboard.push([backButton('⬅️ Kembali', `admin_edit_server_details_${serverId}`)]);
 
     try {
-        await bot.editMessageText(text, {
-            chat_id: query.message.chat.id,
-            message_id: query.message.message_id,
+        await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: keyboard }
         });
@@ -554,8 +535,8 @@ async function promptServerDetailChange(bot, query) {
         messageId: query.message.message_id, chatId: query.message.chat.id
     };
 
-    await bot.editMessageText(`*${title}*\n\n${promptText}`, {
-        chat_id: query.message.chat.id, message_id: query.message.message_id, parse_mode: 'Markdown',
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, `*${title}*\n\n${promptText}`, {
+        parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: [[backButton('Batal', `admin_config_server_${serverId}`)]] }
     });
 }
@@ -568,7 +549,7 @@ async function processServerDetailChange(bot, msg) {
     const { serverId, chatId, messageId, action } = state;
     const newValue = msg.text.trim();
     
-    await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+    await bot.telegram.deleteMessage(chatId, msg.message_id).catch(() => {});
     delete pendingAdminAction[adminId];
 
     const server = serverService.getServerDetails(serverId);
@@ -601,8 +582,8 @@ async function promptNewPrice(bot, query) {
         chatId: query.message.chat.id
     };
 
-    await bot.editMessageText(`✏️ *Ubah Harga ${protoName} (1/2)*\n\nKirimkan harga baru untuk *User* (contoh: \`15000\`).`, {
-        chat_id: query.message.chat.id, message_id: query.message.message_id, parse_mode: 'Markdown',
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, `✏️ *Ubah Harga ${protoName} (1/2)*\n\nKirimkan harga baru untuk *User* (contoh: \`15000\`).`, {
+        parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: [[backButton('Batal', `admin_manage_protocols_${serverId}`)]] }
     });
 }
@@ -614,7 +595,7 @@ async function processNewPriceInput(bot, msg) {
 
     const { serverId, protoId, chatId, messageId, step } = state;
     const newPrice = parseInt(msg.text.trim(), 10);
-    await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+    await bot.telegram.deleteMessage(chatId, msg.message_id).catch(() => {});
 
     if (isNaN(newPrice) || newPrice < 0) {
         delete pendingAdminAction[adminId];
@@ -625,8 +606,8 @@ async function processNewPriceInput(bot, msg) {
         state.userPrice = newPrice;
         state.step = 'get_reseller_price';
         const protoName = VPN_PROTOCOLS.find(p => p.id === protoId)?.name || protoId.toUpperCase();
-        await bot.editMessageText(`✏️ *Ubah Harga ${protoName} (2/2)*\n\nSekarang kirimkan harga baru untuk *Reseller* (contoh: \`10000\`).`, {
-            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown'
+        await bot.telegram.editMessageText(chatId, messageId, null, `✏️ *Ubah Harga ${protoName} (2/2)*\n\nSekarang kirimkan harga baru untuk *Reseller* (contoh: \`10000\`).`, {
+            parse_mode: 'Markdown'
         });
     } else if (step === 'get_reseller_price') {
         const server = serverService.getServerDetails(serverId);
@@ -655,7 +636,7 @@ async function toggleProtocolStatus(bot, query) {
     const [,,, serverId, protoId] = query.data.split('_');
     const server = serverService.getServerDetails(serverId);
     if (!server) {
-        return bot.answerCallbackQuery(query.id, { text: 'Server tidak ditemukan.' });
+        return bot.telegram.answerCbQuery(query.id, 'Server tidak ditemukan.');
     }
 
     if (!server.protocols[protoId]) {
@@ -677,7 +658,7 @@ async function toggleProtocolStatus(bot, query) {
     } catch (error) {
         writeLog(`[AdminHandler] Gagal me-refresh UI di toggleProtocolStatus: ${error.message}`);
     } finally {
-        await bot.answerCallbackQuery(query.id, { text: `Protokol ${protoId.toUpperCase()} telah ${statusText}` });
+        await bot.telegram.answerCbQuery(query.id, `Protokol ${protoId.toUpperCase()} telah ${statusText}`);
     }
 }
 
@@ -694,9 +675,7 @@ async function handleManageUsers(bot, query) {
     const text = `*👤 Kelola Pengguna*\n\nSilakan kirimkan *User ID* dari pengguna yang ingin Anda kelola.`;
     const keyboard = [[backButton('⬅️ Kembali', 'admin_panel_main')]];
 
-    await bot.editMessageText(text, {
-        chat_id: query.message.chat.id,
-        message_id: query.message.message_id,
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
         parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: keyboard }
     });
@@ -708,7 +687,7 @@ async function showUserManagementMenu(bot, msg) {
     const targetUserId = msg.text.trim();
     
     if (state.action === 'find_user') {
-        await bot.deleteMessage(state.chatId, msg.message_id).catch(() => {});
+        await bot.telegram.deleteMessage(state.chatId, msg.message_id).catch(() => {});
     }
     
     const user = userService.getUser(targetUserId);
@@ -716,8 +695,8 @@ async function showUserManagementMenu(bot, msg) {
     if (!user) {
         delete pendingAdminAction[adminId];
         const errText = `❌ User ID \`${targetUserId}\` tidak ditemukan.`;
-        await bot.editMessageText(errText, {
-            chat_id: state.chatId, message_id: state.messageId, parse_mode: 'Markdown',
+        await bot.telegram.editMessageText(state.chatId, state.messageId, null, errText, {
+            parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [[backButton('Coba Lagi', 'admin_manage_users')]]}
         });
         return;
@@ -742,8 +721,7 @@ async function showUserManagementMenu(bot, msg) {
         [backButton('⬅️ Cari User Lain', 'admin_manage_users')]
     ];
 
-    await bot.editMessageText(text, {
-        chat_id: state.chatId, message_id: state.messageId,
+    await bot.telegram.editMessageText(state.chatId, state.messageId, null, text, {
         parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: keyboard }
     });
@@ -769,8 +747,8 @@ async function promptForBalanceChange(bot, query) {
         chatId: query.message.chat.id
     };
 
-    await bot.editMessageText(`*${title}*\n\nKirimkan jumlah nominal untuk User ID \`${targetUserId}\`.`, {
-        chat_id: query.message.chat.id, message_id: query.message.message_id, parse_mode: 'Markdown',
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, `*${title}*\n\nKirimkan jumlah nominal untuk User ID \`${targetUserId}\`.`, {
+        parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: [[backButton('Batal', `admin_user_manage_${targetUserId}`)]] }
     });
 }
@@ -783,7 +761,7 @@ async function processBalanceChange(bot, msg) {
     const { targetUserId, chatId, messageId, action } = state;
     const amount = parseInt(msg.text.trim());
 
-    await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+    await bot.telegram.deleteMessage(chatId, msg.message_id).catch(() => {});
     delete pendingAdminAction[adminId];
 
     if (isNaN(amount) || amount < 0) return;
@@ -818,7 +796,7 @@ async function processRoleChange(bot, query) {
     const newRole = user.role === 'user' ? 'reseller' : 'user';
     userService.updateUserRole(targetUserId, newRole);
     
-    await bot.answerCallbackQuery(query.id, { text: `Role pengguna telah diubah menjadi ${newRole}`});
+    await bot.telegram.answerCbQuery(query.id, `Role pengguna telah diubah menjadi ${newRole}`);
     
     const refreshedMsg = {
         ...query.message,
@@ -831,8 +809,8 @@ async function handleBroadcastPrompt(bot, query) {
     const adminId = query.from.id.toString();
     if (!isAdmin(adminId)) return;
     pendingAdminAction[adminId] = { action: 'broadcast_input', messageId: query.message.message_id, chatId: query.message.chat.id };
-    await bot.editMessageText('📢 *Kirim Broadcast*\n\nKirimkan pesan yang ingin Anda siarkan ke semua pengguna. Mendukung format Markdown.', {
-        chat_id: query.message.chat.id, message_id: query.message.message_id, parse_mode: 'Markdown',
+    await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, '📢 *Kirim Broadcast*\n\nKirimkan pesan yang ingin Anda siarkan ke semua pengguna. Mendukung format Markdown.', {
+        parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: [[backButton('Batal', 'admin_panel_main')]] }
     });
 }
@@ -849,14 +827,14 @@ async function handleBroadcastInput(bot, msg) {
     const allUsers = userService.getAllUsers();
     const userIds = Object.keys(allUsers);
 
-    await bot.editMessageText(`⏳ Memulai broadcast ke *${userIds.length}* pengguna...`, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' });
+    await bot.telegram.editMessageText(chatId, messageId, null, `⏳ Memulai broadcast ke *${userIds.length}* pengguna...`, { parse_mode: 'Markdown' });
 
     let successCount = 0;
     let failCount = 0;
 
     for (const userId of userIds) {
         try {
-            await bot.sendMessage(userId, broadcastMessage, { parse_mode: 'Markdown' });
+            await bot.telegram.sendMessage(userId, broadcastMessage, { parse_mode: 'Markdown' });
             successCount++;
             await new Promise(resolve => setTimeout(resolve, 100));
         } catch (error) {
@@ -869,7 +847,7 @@ async function handleBroadcastInput(bot, msg) {
                    `Berhasil terkirim: *${successCount}*\n` +
                    `Gagal terkirim: *${failCount}*`;
     
-    await bot.editMessageText(report, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[backButton('Kembali', 'admin_panel_main')]] } });
+    await bot.telegram.editMessageText(chatId, messageId, null, report, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[backButton('Kembali', 'admin_panel_main')]] } });
 }
 
 

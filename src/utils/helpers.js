@@ -21,5 +21,9 @@ module.exports = {
   censorBalance: (amount) => {
       const formatted = module.exports.formatRupiah(amount);
       return formatted.replace(/\d/g, (match, offset) => (offset < 4 ? match : '*'));
+  },
+  escapeMarkdown: (text) => {
+    if (!text) return '';
+    return text.toString().replace(/[_*[`]/g, '\\$&');
   }
 };

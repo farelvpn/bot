@@ -25,9 +25,7 @@ Jangan ragu untuk bergabung untuk mendapatkan informasi terbaru, promo, atau ber
     }
     keyboard.push([backButton('⬅️ Kembali', 'back_menu')]);
 
-    await bot.editMessageText(text, {
-        chat_id: chatId,
-        message_id: messageId,
+    await bot.telegram.editMessageText(chatId, messageId, null, text, {
         parse_mode: 'Markdown',
         reply_markup: {
             inline_keyboard: keyboard

@@ -42,7 +42,6 @@ function initializeTables() {
         created_at TEXT NOT NULL
     );
   `;
-  // [PERBAIKAN] Skema tabel yang benar untuk cooldown per protokol
   const createTrialLogsTable = `
     CREATE TABLE IF NOT EXISTS trial_logs (
         telegram_id TEXT NOT NULL,
