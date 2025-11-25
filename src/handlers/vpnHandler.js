@@ -6,11 +6,10 @@ const userService = require('../services/userService');
 const notificationService = require('../services/notificationService');
 const config = require('../config');
 const { writeLog } = require('../utils/logger');
-const { prettyLine, backButton, formatRupiah } = require('../utils/helpers');
+const { prettyLine, backButton, formatRupiah, escapeMarkdown } = require('../utils/helpers');
 const crypto = require('crypto');
 
 const pendingVpnAction = {};
-
 const DURATION_OPTIONS = [30, 60, 90]; 
 
 async function handleVpnUserInput(bot, msg) {
@@ -28,13 +27,10 @@ async function handleVpnUserInput(bot, msg) {
 
 async function handleVpnMenu(bot, query) {
     const text = `🛡️ *Menu VPN*\n${prettyLine()}\nSilakan pilih salah satu menu di bawah ini untuk mengelola layanan VPN Anda.`;
-    
     const row1 = [{ text: '🛒 Beli Akun Baru', callback_data: 'vpn_buy_select_server' }];
-    
     if (config.trial.enabled) {
         row1.push({ text: '🎁 Trial Akun', callback_data: 'vpn_trial_select_server' });
     }
-
     const keyboard = [
         row1,
         [{ text: '🔄 Perpanjang Akun', callback_data: 'vpn_renew_select_account' }],
@@ -72,9 +68,7 @@ async function handleSelectProtocol(bot, query) {
     const server = serverService.getServerDetails(serverId);
     if (!server) return bot.telegram.answerCbQuery(query.id, 'Server tidak ditemukan.', { show_alert: true });
 
-    const availableProtocols = Object.entries(server.protocols)
-        .filter(([, details]) => details.enabled);
-
+    const availableProtocols = Object.entries(server.protocols).filter(([, details]) => details.enabled);
     if (availableProtocols.length === 0) {
         return bot.telegram.answerCbQuery(query.id, 'Server ini belum memiliki protokol aktif.', { show_alert: true });
     }
@@ -89,7 +83,8 @@ async function handleSelectProtocol(bot, query) {
     });
 
     keyboard.push([backButton('⬅️ Kembali', 'vpn_buy_select_server')]);
-    const text = `*Pilih Protokol di ${server.name} (Langkah 2 dari 4)*\n${prettyLine()}\nSilakan pilih jenis protokol yang Anda inginkan:`;
+    const safeServerName = escapeMarkdown(server.name);
+    const text = `*Pilih Protokol di ${safeServerName} (Langkah 2 dari 4)*\n${prettyLine()}\nSilakan pilih jenis protokol yang Anda inginkan:`;
     await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
         parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
     });
@@ -106,7 +101,6 @@ async function handleSelectDuration(bot, query) {
     }
     
     const pricePer30Days = protoDetails.prices[user.role] || protoDetails.prices.user;
-
     const keyboard = DURATION_OPTIONS.map(days => {
         const price = (days / 30) * pricePer30Days;
         return [{
@@ -116,7 +110,6 @@ async function handleSelectDuration(bot, query) {
     });
 
     keyboard.push([backButton('⬅️ Kembali', `vpn_select_protocol_${serverId}`)]);
-
     const text = `*Pilih Durasi untuk ${protoId.toUpperCase()} (Langkah 3 dari 4)*\n${prettyLine()}\nPilih masa aktif yang Anda inginkan:`;
     await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
         parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
@@ -202,13 +195,14 @@ async function handleProcessPurchase(bot, msg) {
         
         await bot.telegram.editMessageText(chatId, messageId, null, result.details, { parse_mode: 'HTML' });
 
+        const safeServerName = escapeMarkdown(server.name);
         const summaryText = `
 📄 *Ringkasan Pembelian*
 ------------------------------------------
 ✅ Transaksi Berhasil!
         
 *Produk:* Akun ${protoId.toUpperCase()} (${duration} Hari)
-*Server:* ${server.name}
+*Server:* ${safeServerName}
 *Username:* \`${username}\`
 *Harga:* ${formatRupiah(finalPrice)}
 ------------------------------------------
@@ -252,7 +246,8 @@ async function handleSelectAccountForRenew(bot, query) {
         const expiry = new Date(acc.expiry_date);
         const now = new Date();
         const timeLeft = Math.ceil((expiry - now) / (1000 * 60 * 60 * 24));
-        text += `• Server: *${acc.server_name}*\n`;
+        const safeServerName = escapeMarkdown(acc.server_name);
+        text += `• Server: *${safeServerName}*\n`;
         text += `• User: \`${acc.username}\`\n`;
         text += `• Protokol: *${acc.protocol.toUpperCase()}*\n`;
         text += `• Sisa Aktif: *${timeLeft > 0 ? timeLeft : 0} hari*\n${prettyLine()}\n`;
@@ -299,10 +294,11 @@ async function handleConfirmRenew(bot, query) {
             await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, `❌ *Gagal Memperpanjang*\n\n${error.message}`, { parse_mode: 'Markdown' });
         }
     } else {
+        const safeServerName = escapeMarkdown(account.server_name);
         const text = `*Konfirmasi Perpanjangan*\n${prettyLine()}\n` +
             `Anda akan memperpanjang akun:\n` +
             `• User: \`${account.username}\`\n` +
-            `• Server: *${account.server_name}*\n` +
+            `• Server: *${safeServerName}*\n` +
             `• Biaya: *${formatRupiah(price)}* (30 Hari)\n\n` +
             `Saldo Anda saat ini: *${formatRupiah(user.balance)}*\n\n` +
             `Apakah Anda yakin?`;
@@ -378,7 +374,8 @@ async function handleSelectProtocolForTrial(bot, query) {
     }
 
     keyboard.push([backButton('⬅️ Kembali', 'vpn_trial_select_server')]);
-    const text = `*Pilih Protokol Trial di ${server.name} (Langkah 2 dari 2)*\n${prettyLine()}\nPilih protokol yang ingin Anda coba.`;
+    const safeServerName = escapeMarkdown(server.name);
+    const text = `*Pilih Protokol Trial di ${safeServerName} (Langkah 2 dari 2)*\n${prettyLine()}\nPilih protokol yang ingin Anda coba.`;
     await bot.telegram.editMessageText(query.message.chat.id, query.message.message_id, null, text, {
         parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard }
     });
