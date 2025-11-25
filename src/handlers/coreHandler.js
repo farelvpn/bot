@@ -29,8 +29,6 @@ async function sendMainMenu(bot, userId, chatId, messageIdToEdit = null) {
     const uptimeH = Math.floor(uptimeSec / 3600);
     const uptimeM = Math.floor((uptimeSec % 3600) / 60);
     const uptimeStr = `${uptimeH}j ${uptimeM}m`;
-
-    // [PERBAIKAN] Escape variabel dinamis agar tidak merusak Markdown
     const safeStoreName = escapeMarkdown(config.storeName);
     const safeUsername = escapeMarkdown(user.username || 'tidak_ada');
 
