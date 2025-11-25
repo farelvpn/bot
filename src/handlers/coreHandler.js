@@ -2,7 +2,7 @@
 const userService = require('../services/userService');
 const serverService = require('../services/serverService');
 const config = require('../config');
-const { formatRupiah, prettyLine, escapeMarkdown } = require('../utils/helpers');
+const { formatRupiah, prettyLine, escapeMarkdown } = require('../utils/helpers'); // [UPDATE] Import escapeMarkdown
 const { writeLog } = require('../utils/logger');
 const os = require('os');
 const adminHandler = require('./adminHandler');
@@ -30,7 +30,7 @@ async function sendMainMenu(bot, userId, chatId, messageIdToEdit = null) {
     const uptimeM = Math.floor((uptimeSec % 3600) / 60);
     const uptimeStr = `${uptimeH}j ${uptimeM}m`;
 
-    // [PERBAIKAN] Escape variabel dinamis agar tidak merusak Markdown
+    // [FIX] Escape nama toko dan username
     const safeStoreName = escapeMarkdown(config.storeName);
     const safeUsername = escapeMarkdown(user.username || 'tidak_ada');
 
