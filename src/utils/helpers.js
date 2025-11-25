@@ -24,6 +24,6 @@ module.exports = {
   },
   escapeMarkdown: (text) => {
     if (!text) return '';
-    return text.toString().replace(/[_*[`]/g, '\\$&');
+    return text.toString().replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
   }
 };
