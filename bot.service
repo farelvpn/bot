@@ -1,0 +1,23 @@
+[Unit]
+Description=Bot Store VPN by Farell Aditya
+Documentation=https://github.com/farelvpn
+After=syslog.target network-online.target
+
+[Service]
+Type=simple
+User=root
+NoNewPrivileges=true
+ExecStart=/root/.nvm/versions/node/v20.19.5/bin/node src/bot.js
+WorkingDirectory=/root/bot
+Restart=on-failure
+RestartPreventExitStatus=23
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+LimitNPROC=10000
+LimitNOFILE=1000000
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
